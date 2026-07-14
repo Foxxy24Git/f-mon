@@ -1,0 +1,24 @@
+# F-mon — Fase 1: baru service database saja.
+# App & ping worker menyusul di fase berikutnya.
+services:
+  db:
+    image: postgres:16
+    container_name: fmon-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fmon
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: fmon
+    ports:
+      # host:container — biar Prisma di mesin lokal bisa connect ke localhost:5432
+      - "5432:5432"
+    volumes:
+      - fmon-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fmon -d fmon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  fmon-pgdata:

@@ -1,0 +1,141 @@
+// F-mon — schema database
+// Sumber kebenaran skema. Semua perubahan lewat `prisma migrate dev`,
+// JANGAN edit database manual (lihat CLAUDE.md §8).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Node: satu perangkat/target yang di-ping (ATM, gateway, switch, dll) ──
+model Node {
+  id        String   @id @default(cuid())
+  name      String
+  ipAddress String   @unique
+  type      NodeType @default(ATM)
+  region    String? // regency / kabupaten-kota
+  branch    String?
+
+  // relasi parent-child untuk logika root-cause (bukan garis di canvas!)
+  parentId String?
+  parent   Node?    @relation("Tree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Node[]   @relation("Tree")
+
+  // properti canvas
+  mapId     String
+  posX      Float  @default(0)
+  posY      Float  @default(0)
+  icon      String @default("atm")
+  size      Int    @default(48)
+  labelMode String @default("NAME_IP") // NAME | NAME_IP | NAME_IP_LATENCY
+
+  // parameter monitoring
+  enabled       Boolean @default(true)
+  intervalSec   Int     @default(30)
+  latencyWarnMs Int     @default(200)
+
+  // status terakhir (cache; sumber histori tetap di StatusEvent/PingResult)
+  status       Status    @default(UNKNOWN)
+  lastLatency  Float?
+  lastCheckAt  DateTime?
+  lastChangeAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pings  PingResult[]
+  hourly PingHourly[]
+  events StatusEvent[]
+
+  @@index([mapId])
+  @@index([parentId])
+}
+
+// ── Edge: garis yang DIGAMBAR user di canvas (dekoratif, bukan relasi parent) ──
+model Edge {
+  id           String  @id @default(cuid())
+  mapId        String
+  sourceId     String
+  targetId     String
+  sourceHandle String? // top | right | bottom | left
+  targetHandle String?
+  lineType     String  @default("smoothstep") // straight | step | smoothstep | bezier
+  color        String  @default("#64748b")
+  width        Int     @default(2)
+  label        String?
+  animated     Boolean @default(false)
+
+  @@index([mapId])
+}
+
+// ── Map: satu canvas topologi (mis. per regency + satu Overview) ──
+model Map {
+  id     String @id @default(cuid())
+  name   String
+  slug   String @unique
+  bgType String @default("dots") // dots | grid | plain
+}
+
+// ── PingResult: hasil ping mentah. SANGAT besar (~2 juta baris/hari), retensi 7 hari ──
+model PingResult {
+  id        BigInt   @id @default(autoincrement())
+  nodeId    String
+  node      Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  ts        DateTime @default(now())
+  isAlive   Boolean
+  latencyMs Float?
+  lossPct   Float
+
+  @@index([nodeId, ts])
+}
+
+// ── PingHourly: agregasi per jam untuk histori jangka panjang (CLAUDE.md §8) ──
+model PingHourly {
+  id         BigInt   @id @default(autoincrement())
+  nodeId     String
+  node       Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  hour       DateTime // dibulatkan ke awal jam
+  avgLatency Float?
+  maxLatency Float?
+  uptimePct  Float
+
+  @@unique([nodeId, hour])
+  @@index([nodeId, hour])
+}
+
+// ── StatusEvent: dicatat HANYA saat status berubah ──
+model StatusEvent {
+  id        String   @id @default(cuid())
+  nodeId    String
+  node      Node     @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  from      Status
+  to        Status
+  ts        DateTime @default(now())
+  rootCause String? // id node penyebab, jika status UNREACHABLE
+
+  @@index([nodeId, ts])
+}
+
+enum NodeType {
+  ATM
+  GATEWAY
+  SWITCH
+  ROUTER
+  SERVER
+  BRANCH
+  ISP
+  OTHER
+}
+
+enum Status {
+  UP
+  DOWN
+  WARNING
+  UNREACHABLE
+  PAUSED
+  UNKNOWN
+}
