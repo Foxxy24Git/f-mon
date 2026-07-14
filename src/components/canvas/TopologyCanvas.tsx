@@ -1,185 +1,404 @@
 "use client";
 
 // Wrapper React Flow untuk canvas topologi (CLAUDE.md §6).
-// Sekarang pakai custom DeviceNode + drag-drop dari NodePalette untuk membuat
-// node baru yang langsung tersimpan ke DB.
-import { useCallback, useState } from "react";
+// Mode terkontrol (controlled): nodes/edges dipegang di state supaya bisa
+// - toggle Edit/View,
+// - auto-save posisi (debounce 800ms) + Save manual,
+// - undo/redo (pindah node, hapus node, hapus edge, tambah edge),
+// - edit properti node/edge lewat PropertyPanel.
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
   BackgroundVariant,
-  Controls,
   MiniMap,
   useReactFlow,
+  useNodesState,
+  useEdgesState,
   ReactFlowProvider,
   type Node,
   type Edge,
   type Connection,
   type NodeTypes,
   type EdgeTypes,
+  type OnSelectionChangeParams,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import DeviceNode from "./DeviceNode";
 import LinkEdge from "./LinkEdge";
-import NodePalette, { DND_MIME } from "./NodePalette";
+import { DND_MIME } from "./NodePalette";
+import CanvasToolbar, { type SaveStatus } from "./CanvasToolbar";
+import PropertyPanel from "./PropertyPanel";
 import { iconFor } from "@/lib/icons";
 
-// Grid untuk snap. Kanvas React Flow sendiri tak terbatas (§6).
 const SNAP_GRID: [number, number] = [16, 16];
-// nodeTypes/edgeTypes WAJIB di module scope (referensi stabil) agar React Flow tak warning.
 const NODE_TYPES: NodeTypes = { device: DeviceNode };
 const EDGE_TYPES: EdgeTypes = { link: LinkEdge };
+const SAVE_DEBOUNCE_MS = 800;
 
-type Props = {
-  nodes: Node[];
-  edges: Edge[];
-  mapId: string;
+type Props = { nodes: Node[]; edges: Edge[]; mapId: string; canEdit: boolean };
+
+// Satu langkah undo = sepasang fungsi. undo() membalik aksi, redo() mengulanginya.
+// Cukup fleksibel untuk pindah/tambah/hapus tanpa bikin switch besar.
+type HistoryEntry = { undo: () => void | Promise<void>; redo: () => void | Promise<void> };
+
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
+// ── konversi bentuk DB ↔ React Flow (dipakai saat membuat/mengembalikan) ──
+type DbEdge = {
+  id: string; sourceId: string; targetId: string;
+  sourceHandle: string | null; targetHandle: string | null;
+  lineType: string; color: string; width: number; label: string | null; animated: boolean;
 };
-
-function Toolbar({ snap, onToggleSnap }: { snap: boolean; onToggleSnap: () => void }) {
-  const { fitView } = useReactFlow();
-  return (
-    <div className="absolute right-3 top-3 z-10 flex gap-2">
-      <button
-        onClick={() => fitView({ duration: 300 })}
-        className="rounded bg-white px-3 py-1.5 text-sm shadow ring-1 ring-slate-300 hover:bg-slate-50"
-      >
-        Fit to view
-      </button>
-      <button
-        onClick={onToggleSnap}
-        className={`rounded px-3 py-1.5 text-sm shadow ring-1 ring-slate-300 hover:bg-slate-50 ${
-          snap ? "bg-blue-600 text-white ring-blue-600" : "bg-white"
-        }`}
-      >
-        Snap: {snap ? "ON" : "OFF"}
-      </button>
-    </div>
-  );
+function dbEdgeToRF(e: DbEdge): Edge {
+  return {
+    id: e.id, source: e.sourceId, target: e.targetId,
+    sourceHandle: e.sourceHandle ?? undefined, targetHandle: e.targetHandle ?? undefined,
+    type: "link", animated: e.animated,
+    data: { lineType: e.lineType, color: e.color, width: e.width, label: e.label ?? undefined },
+  };
+}
+async function createEdgeInDB(mapId: string, e: Edge): Promise<Edge> {
+  const d = (e.data ?? {}) as Record<string, unknown>;
+  const res = await fetch("/api/edges", {
+    method: "POST", headers: JSON_HEADERS,
+    body: JSON.stringify({
+      mapId, sourceId: e.source, targetId: e.target,
+      sourceHandle: e.sourceHandle ?? null, targetHandle: e.targetHandle ?? null,
+      lineType: d.lineType, color: d.color, width: d.width, label: d.label,
+    }),
+  });
+  return dbEdgeToRF(await res.json());
 }
 
-// Flow harus jadi anak ReactFlowProvider supaya bisa pakai useReactFlow (drop).
-function Flow({ nodes, edges, mapId }: Props) {
-  const [snap, setSnap] = useState(false);
-  const toggleSnap = useCallback(() => setSnap((s) => !s), []);
-  const { screenToFlowPosition, addNodes, addEdges } = useReactFlow();
+// Node lengkap dari DB (untuk mengembalikan node yang dihapus PERSIS seperti semula).
+type DbNode = {
+  id: string; name: string; ipAddress: string; type: string; region: string | null;
+  branch: string | null; parentId: string | null; intervalSec: number; latencyWarnMs: number;
+  enabled: boolean; mapId: string; posX: number; posY: number; icon: string; size: number;
+  labelMode: string; status: string; lastLatency: number | null;
+};
+function dbNodeToRF(n: DbNode): Node {
+  return {
+    id: n.id, type: "device", position: { x: n.posX, y: n.posY },
+    data: {
+      name: n.name, ipAddress: n.ipAddress, icon: n.icon, size: n.size,
+      labelMode: n.labelMode, status: n.status, latency: n.lastLatency, parentId: n.parentId,
+    },
+  };
+}
+async function createNodeInDB(n: DbNode): Promise<Node> {
+  const res = await fetch("/api/nodes", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(n) });
+  return dbNodeToRF(await res.json());
+}
 
-  // User menarik garis dari handle satu node ke handle node lain → simpan ke DB
-  // lalu tampilkan. Garis ini DEKORATIF, tidak menyentuh parentId (CLAUDE.md §6).
+function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
+  const { screenToFlowPosition } = useReactFlow();
+
+  // Non-ADMIN mulai (dan terkunci) di mode View.
+  const [editMode, setEditMode] = useState(canEdit);
+  const [snap, setSnap] = useState(false);
+  const [showGrid, setShowGrid] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  // simpan ID seleksi, bukan snapshot node/edge, supaya panel selalu baca data
+  // TERBARU dari state (mis. setelah ganti icon/parent) — bukan versi lama.
+  const [selNodeId, setSelNodeId] = useState<string | null>(null);
+  const [selEdgeId, setSelEdgeId] = useState<string | null>(null);
+  const selNode = selNodeId ? nodes.find((n) => n.id === selNodeId) ?? null : null;
+  const selEdge = selEdgeId ? edges.find((e) => e.id === selEdgeId) ?? null : null;
+
+  // ── auto-save posisi (debounce) ──
+  const dirtyPos = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushSave = useCallback(async () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const pending = [...dirtyPos.current.entries()];
+    dirtyPos.current.clear();
+    if (!pending.length) return;
+    setSaveStatus("saving");
+    await Promise.all(
+      pending.map(([id, p]) =>
+        fetch(`/api/nodes/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: p.x, posY: p.y }) }),
+      ),
+    );
+    setSaveStatus("saved");
+  }, []);
+
+  const scheduleSave = useCallback(() => {
+    setSaveStatus("saving");
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+  }, [flushSave]);
+
+  const handleNodesChange = useCallback<typeof onNodesChange>(
+    (changes) => {
+      onNodesChange(changes);
+      let moved = false;
+      for (const c of changes) {
+        if (c.type === "position" && c.position) {
+          dirtyPos.current.set(c.id, c.position);
+          moved = true;
+        }
+      }
+      if (moved) scheduleSave();
+    },
+    [onNodesChange, scheduleSave],
+  );
+
+  // ── undo/redo ──
+  const undoStack = useRef<HistoryEntry[]>([]);
+  const redoStack = useRef<HistoryEntry[]>([]);
+  const [, bump] = useReducer((x: number) => x + 1, 0); // paksa re-render tombol
+
+  const pushHistory = useCallback((entry: HistoryEntry) => {
+    undoStack.current.push(entry);
+    redoStack.current = [];
+    bump();
+  }, []);
+  const doUndo = useCallback(async () => {
+    const entry = undoStack.current.pop();
+    if (!entry) return;
+    await entry.undo();
+    redoStack.current.push(entry);
+    bump();
+  }, []);
+  const doRedo = useCallback(async () => {
+    const entry = redoStack.current.pop();
+    if (!entry) return;
+    await entry.redo();
+    undoStack.current.push(entry);
+    bump();
+  }, []);
+
+  // Ctrl+Z / Ctrl+Shift+Z (abaikan kalau sedang mengetik di form panel).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        if (e.shiftKey) doRedo(); else doUndo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [doUndo, doRedo]);
+
+  // ── pindah node → catat undo (posisi awal ditangkap saat mulai drag) ──
+  const dragStart = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const onNodeDragStart = useCallback((_e: unknown, _n: Node, dragged: Node[]) => {
+    for (const n of dragged) dragStart.current.set(n.id, { ...n.position });
+  }, []);
+  const onNodeDragStop = useCallback(
+    (_e: unknown, _n: Node, dragged: Node[]) => {
+      const moves: { id: string; from: { x: number; y: number }; to: { x: number; y: number } }[] = [];
+      for (const n of dragged) {
+        const from = dragStart.current.get(n.id);
+        if (from && (from.x !== n.position.x || from.y !== n.position.y))
+          moves.push({ id: n.id, from, to: { ...n.position } });
+      }
+      if (!moves.length) return;
+      const apply = (pick: "from" | "to") => {
+        setNodes((ns) =>
+          ns.map((n) => {
+            const m = moves.find((mm) => mm.id === n.id);
+            return m ? { ...n, position: m[pick] } : n;
+          }),
+        );
+        for (const m of moves)
+          fetch(`/api/nodes/${m.id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: m[pick].x, posY: m[pick].y }) });
+      };
+      pushHistory({ undo: () => apply("from"), redo: () => apply("to") });
+    },
+    [setNodes, pushHistory],
+  );
+
+  // ── tambah edge (tarik dari handle) → simpan + catat undo ──
   const onConnect = useCallback(
     async (c: Connection) => {
       if (!c.source || !c.target) return;
-      const res = await fetch("/api/edges", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mapId,
-          sourceId: c.source,
-          targetId: c.target,
-          sourceHandle: c.sourceHandle,
-          targetHandle: c.targetHandle,
-        }),
+      const created = await createEdgeInDB(mapId, {
+        id: "", source: c.source, target: c.target,
+        sourceHandle: c.sourceHandle ?? undefined, targetHandle: c.targetHandle ?? undefined,
+        data: {},
       });
-      if (!res.ok) {
-        window.alert("Gagal menyimpan garis");
-        return;
-      }
-      const e = await res.json();
-      addEdges({
-        id: e.id, // pakai id dari DB, bukan id acak → konsisten setelah refresh
-        source: e.sourceId,
-        target: e.targetId,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-        type: "link",
-        animated: e.animated,
-        data: { lineType: e.lineType, color: e.color, width: e.width, label: e.label ?? undefined },
+      setEdges((es) => [...es, created]);
+      let rec = created; // id bisa berubah saat redo re-create → simpan yang terbaru
+      pushHistory({
+        undo: async () => {
+          setEdges((es) => es.filter((e) => e.id !== rec.id));
+          await fetch(`/api/edges/${rec.id}`, { method: "DELETE" });
+        },
+        redo: async () => {
+          rec = await createEdgeInDB(mapId, rec);
+          setEdges((es) => [...es, rec]);
+        },
       });
     },
-    [mapId, addEdges],
+    [mapId, setEdges, pushHistory],
   );
 
-  // Hapus garis (pilih lalu Backspace) → hapus juga di DB biar tak muncul lagi.
-  const onEdgesDelete = useCallback((deleted: Edge[]) => {
-    for (const e of deleted) fetch(`/api/edges/${e.id}`, { method: "DELETE" });
+  // ── hapus node dan/atau edge (Backspace) → satu langkah undo gabungan ──
+  // React Flow sudah membuang dari state; tugas kita: hapus di DB + catat undo.
+  // ponytail: undo mengembalikan node & garis-nya + parentId node itu sendiri,
+  // TAPI belum me-link ulang anak-anaknya (parentId anak sudah SetNull). Edge
+  // case ini ditunda; tambahkan kalau menghapus node ber-anak jadi sering.
+  const onDelete = useCallback(
+    async ({ nodes: delNodes, edges: delEdges }: { nodes: Node[]; edges: Edge[] }) => {
+      // ambil data lengkap node SEBELUM dihapus, biar bisa dikembalikan persis.
+      const fullNodes: DbNode[] = await Promise.all(
+        delNodes.map((n) => fetch(`/api/nodes/${n.id}`).then((r) => r.json())),
+      );
+      await Promise.all(delNodes.map((n) => fetch(`/api/nodes/${n.id}`, { method: "DELETE" })));
+      await Promise.all(delEdges.map((e) => fetch(`/api/edges/${e.id}`, { method: "DELETE" })));
+
+      let savedEdges = delEdges;
+      pushHistory({
+        undo: async () => {
+          const rfNodes = await Promise.all(fullNodes.map(createNodeInDB));
+          const rfEdges = await Promise.all(savedEdges.map((e) => createEdgeInDB(mapId, e)));
+          savedEdges = rfEdges; // id edge baru → dipakai redo untuk menghapus lagi
+          setNodes((ns) => [...ns, ...rfNodes]);
+          setEdges((es) => [...es, ...rfEdges]);
+        },
+        redo: async () => {
+          const nIds = new Set(fullNodes.map((n) => n.id));
+          const eIds = new Set(savedEdges.map((e) => e.id));
+          setNodes((ns) => ns.filter((n) => !nIds.has(n.id)));
+          setEdges((es) => es.filter((e) => !eIds.has(e.id)));
+          await Promise.all([...nIds].map((id) => fetch(`/api/nodes/${id}`, { method: "DELETE" })));
+          await Promise.all([...eIds].map((id) => fetch(`/api/edges/${id}`, { method: "DELETE" })));
+        },
+      });
+    },
+    [mapId, setNodes, setEdges, pushHistory],
+  );
+
+  // ── seleksi → PropertyPanel (hanya SATU node ATAU SATU edge) ──
+  const onSelectionChange = useCallback(({ nodes: sn, edges: se }: OnSelectionChangeParams) => {
+    setSelNodeId(sn.length === 1 ? sn[0].id : null);
+    setSelEdgeId(sn.length === 0 && se.length === 1 ? se[0].id : null);
   }, []);
 
+  // ── edit properti dari panel: patch state canvas + simpan ke DB ──
+  const onUpdateNode = useCallback(
+    (id: string, patch: Record<string, unknown>) => {
+      // parentId tidak mengubah visual node, jadi jangan tulis ke data tampilan.
+      const dataKeys = ["name", "icon", "size", "labelMode", "parentId"];
+      setNodes((ns) =>
+        ns.map((n) => {
+          if (n.id !== id) return n;
+          const data = { ...n.data };
+          for (const k of dataKeys) if (k in patch) (data as Record<string, unknown>)[k] = patch[k];
+          return { ...n, data };
+        }),
+      );
+      fetch(`/api/nodes/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(patch) });
+    },
+    [setNodes],
+  );
+  const onUpdateEdge = useCallback(
+    (id: string, patch: Record<string, unknown>) => {
+      setEdges((es) => es.map((e) => (e.id === id ? { ...e, data: { ...e.data, ...patch } } : e)));
+      fetch(`/api/edges/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(patch) });
+    },
+    [setEdges],
+  );
+
+  // keluar dari mode Edit → tutup panel & buang seleksi.
+  const toggleMode = useCallback(() => {
+    if (!canEdit) return; // non-ADMIN tidak boleh masuk mode Edit
+    setEditMode((m) => {
+      if (m) { setSelNodeId(null); setSelEdgeId(null); }
+      return !m;
+    });
+  }, [canEdit]);
+
+  // ── drop icon dari palette (hanya di mode Edit) ──
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
   }, []);
-
   const onDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault();
+      if (!editMode) return;
       const key = e.dataTransfer.getData(DND_MIME);
       if (!key) return;
       const meta = iconFor(key);
-      // Posisi drop di koordinat canvas (bukan layar) → node muncul tepat di kursor.
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-
-      // ponytail: prompt sementara. Ganti dengan form PropertyPanel saat sudah ada.
+      // ponytail: prompt sementara. Ganti dengan form saat sudah ada.
       const ipAddress = window.prompt(`IP untuk ${meta.label} baru:`)?.trim();
-      if (!ipAddress) return; // batal / kosong
-
+      if (!ipAddress) return;
       const res = await fetch("/api/nodes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: `${meta.label} ${ipAddress}`,
-          ipAddress,
-          type: meta.type,
-          icon: key,
-          mapId,
-          posX: pos.x,
-          posY: pos.y,
-        }),
+        method: "POST", headers: JSON_HEADERS,
+        body: JSON.stringify({ name: `${meta.label} ${ipAddress}`, ipAddress, type: meta.type, icon: key, mapId, posX: pos.x, posY: pos.y }),
       });
       if (!res.ok) {
         const { error } = await res.json().catch(() => ({}));
         window.alert(error ?? "Gagal membuat node");
         return;
       }
-      const n = await res.json();
-      addNodes({
-        id: n.id,
-        type: "device",
-        position: pos,
-        data: {
-          name: n.name,
-          ipAddress: n.ipAddress,
-          icon: n.icon,
-          size: n.size,
-          labelMode: n.labelMode,
-          status: n.status,
-          latency: n.lastLatency,
-        },
-      });
+      const created = dbNodeToRF(await res.json());
+      setNodes((ns) => [...ns, created]);
     },
-    [screenToFlowPosition, addNodes, mapId],
+    [editMode, screenToFlowPosition, mapId, setNodes],
   );
 
   return (
     <div className="relative h-full w-full" onDragOver={onDragOver} onDrop={onDrop}>
-      <Toolbar snap={snap} onToggleSnap={toggleSnap} />
+      <CanvasToolbar
+        canEdit={canEdit}
+        editMode={editMode}
+        onToggleMode={toggleMode}
+        showGrid={showGrid}
+        onToggleGrid={() => setShowGrid((g) => !g)}
+        snap={snap}
+        onToggleSnap={() => setSnap((s) => !s)}
+        saveStatus={saveStatus}
+        onSave={flushSave}
+        canUndo={undoStack.current.length > 0}
+        canRedo={redoStack.current.length > 0}
+        onUndo={doUndo}
+        onRedo={doRedo}
+      />
+      {editMode && (
+        <PropertyPanel
+          node={selNode}
+          edge={selEdge}
+          allNodes={nodes}
+          onUpdateNode={onUpdateNode}
+          onUpdateEdge={onUpdateEdge}
+        />
+      )}
       <ReactFlow
-        defaultNodes={nodes}
-        defaultEdges={edges}
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={onEdgesChange}
         nodeTypes={NODE_TYPES}
         edgeTypes={EDGE_TYPES}
         onConnect={onConnect}
-        onEdgesDelete={onEdgesDelete}
-        minZoom={0.1} // 10%
-        maxZoom={3} // 300%
+        onDelete={onDelete}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
+        onSelectionChange={onSelectionChange}
+        nodesDraggable={editMode}
+        nodesConnectable={editMode}
+        elementsSelectable={editMode}
+        minZoom={0.1}
+        maxZoom={3}
         snapToGrid={snap}
         snapGrid={SNAP_GRID}
-        onlyRenderVisibleElements // performa: hanya render yang terlihat (§6)
+        onlyRenderVisibleElements
         fitView
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+        {showGrid && <Background variant={BackgroundVariant.Dots} gap={16} size={1} />}
         <MiniMap pannable zoomable />
-        <Controls />
       </ReactFlow>
     </div>
   );

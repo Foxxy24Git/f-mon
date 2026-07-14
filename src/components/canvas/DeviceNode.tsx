@@ -24,6 +24,7 @@ export type DeviceNodeData = {
   labelMode: string; // NAME | NAME_IP | NAME_IP_LATENCY
   status: Status;
   latency?: number | null;
+  parentId?: string | null; // relasi root-cause; hanya dipakai PropertyPanel, bukan visual
 };
 
 // warna border+glow per status. ring = border, glow = boxShadow.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
 import { NODE_TYPES, STATUSES } from "@/lib/nodes";
 
 type Node = {
@@ -30,6 +31,8 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function NodesPage() {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === "ADMIN"; // CRUD & import hanya ADMIN
   const [nodes, setNodes] = useState<Node[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
@@ -99,27 +102,37 @@ export default function NodesPage() {
     <main className="mx-auto max-w-6xl p-6">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Manajemen Node</h1>
-        <div className="flex gap-2">
-          <label className="cursor-pointer rounded bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-800">
-            Import CSV
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) importCsv(f);
-                e.target.value = "";
-              }}
-            />
-          </label>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <>
+              <label className="cursor-pointer rounded bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-800">
+                Import CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) importCsv(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <button
+                className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
+                onClick={() =>
+                  setForm({ type: "ATM", intervalSec: 30, latencyWarnMs: 200, enabled: true })
+                }
+              >
+                + Tambah Node
+              </button>
+            </>
+          )}
           <button
-            className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
-            onClick={() =>
-              setForm({ type: "ATM", intervalSec: 30, latencyWarnMs: 200, enabled: true })
-            }
+            className="rounded px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"
+            onClick={() => signOut({ callbackUrl: "/login" })}
           >
-            + Tambah Node
+            Keluar
           </button>
         </div>
       </div>
@@ -208,15 +221,21 @@ export default function NodesPage() {
                 </td>
                 <td className="px-3 py-2">{n.parent?.name ?? "-"}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">
-                  <button className="text-blue-600 hover:underline" onClick={() => setForm(n)}>
-                    Edit
-                  </button>
-                  <button
-                    className="ml-3 text-red-600 hover:underline"
-                    onClick={() => deleteNode(n)}
-                  >
-                    Hapus
-                  </button>
+                  {isAdmin ? (
+                    <>
+                      <button className="text-blue-600 hover:underline" onClick={() => setForm(n)}>
+                        Edit
+                      </button>
+                      <button
+                        className="ml-3 text-red-600 hover:underline"
+                        onClick={() => deleteNode(n)}
+                      >
+                        Hapus
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-slate-300">—</span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -43,6 +43,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (b.enabled !== undefined) data.enabled = b.enabled;
   if (b.parentId !== undefined)
     data.parent = b.parentId ? { connect: { id: b.parentId } } : { disconnect: true };
+  // properti canvas (auto-save posisi + edit via PropertyPanel)
+  if (b.posX !== undefined) data.posX = b.posX;
+  if (b.posY !== undefined) data.posY = b.posY;
+  if (b.icon !== undefined) data.icon = b.icon;
+  if (b.size !== undefined) data.size = b.size;
+  if (b.labelMode !== undefined) data.labelMode = b.labelMode;
 
   try {
     const node = await db.node.update({ where: { id }, data });

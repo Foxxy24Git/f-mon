@@ -2,12 +2,16 @@
 // sesuai slug, ubah ke bentuk React Flow, lalu render di TopologyCanvas (client).
 import { notFound } from "next/navigation";
 import type { Node, Edge } from "@xyflow/react";
+import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import TopologyCanvas from "@/components/canvas/TopologyCanvas";
 import NodePalette from "@/components/canvas/NodePalette";
 
 export default async function MapPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+
+  const session = await auth();
+  const canEdit = session?.user?.role === "ADMIN"; // mode Edit hanya untuk ADMIN
 
   const map = await db.map.findUnique({ where: { slug } });
   if (!map) notFound();
@@ -18,6 +22,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
       select: {
         id: true, name: true, ipAddress: true, posX: true, posY: true,
         icon: true, size: true, labelMode: true, status: true, lastLatency: true,
+        parentId: true,
       },
     }),
     db.edge.findMany({ where: { mapId: map.id } }),
@@ -35,6 +40,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
       labelMode: n.labelMode,
       status: n.status,
       latency: n.lastLatency,
+      parentId: n.parentId, // dipakai PropertyPanel (dropdown parent), bukan visual
     },
   }));
 
@@ -56,9 +62,9 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
         <span className="text-xs text-slate-500">{nodes.length} node</span>
       </header>
       <div className="flex flex-1 overflow-hidden">
-        <NodePalette />
+        {canEdit && <NodePalette />}
         <div className="flex-1">
-          <TopologyCanvas nodes={nodes} edges={edges} mapId={map.id} />
+          <TopologyCanvas nodes={nodes} edges={edges} mapId={map.id} canEdit={canEdit} />
         </div>
       </div>
     </div>

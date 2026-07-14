@@ -36,6 +36,9 @@ export async function POST(req: NextRequest) {
   try {
     const node = await db.node.create({
       data: {
+        // id opsional: dipakai fitur undo agar node yang dihapus kembali dengan
+        // id semula (garis/edge yang menunjuk ke id ini tetap valid).
+        ...(b.id ? { id: b.id } : {}),
         name: b.name.trim(),
         ipAddress: b.ipAddress.trim(),
         type: b.type ?? "ATM",
@@ -50,6 +53,8 @@ export async function POST(req: NextRequest) {
         ...(b.posX != null ? { posX: b.posX } : {}),
         ...(b.posY != null ? { posY: b.posY } : {}),
         ...(b.icon ? { icon: b.icon } : {}),
+        ...(b.size != null ? { size: b.size } : {}),
+        ...(b.labelMode ? { labelMode: b.labelMode } : {}),
       },
     });
     return NextResponse.json(node, { status: 201 });

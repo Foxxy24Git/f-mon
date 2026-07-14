@@ -14,6 +14,7 @@ import {
   type Ping,
 } from "../lib/status";
 import { pingBatch } from "./fping";
+import { fmtDown, fmtRecovery, sendTelegram } from "../lib/telegram";
 
 const INTERVAL_MS = Number(process.env.PING_INTERVAL_SEC ?? 30) * 1000;
 const COUNT = Number(process.env.PING_COUNT ?? 3);
@@ -42,8 +43,12 @@ async function cycle(verbose: boolean) {
       ipAddress: true,
       status: true,
       name: true,
+      region: true,
+      branch: true,
+      maintenance: true,
     },
   });
+  const byId = new Map(nodes.map((n) => [n.id, n]));
   const active = nodes.filter((n) => n.enabled);
 
   // Ping per-chunk (maks PING_CONCURRENCY host per proses fping) supaya tidak
@@ -122,12 +127,34 @@ async function cycle(verbose: boolean) {
   if (events.length) await db.statusEvent.createMany({ data: events });
   await Promise.all(updates);
 
+  // 5) Alert Telegram. ATURAN MUTLAK (CLAUDE.md §5): HANYA transisi ke DOWN yang
+  // di-alert. UNREACHABLE = korban, TIDAK PERNAH di-alert — dan memang tak mungkin
+  // lolos filter di bawah karena `e.to` sudah status resmi (DOWN ≠ UNREACHABLE).
+  for (const e of events) {
+    const n = byId.get(e.nodeId)!;
+    if (n.maintenance) continue; // sedang maintenance → bungkam semua alert node ini
+    if (e.to === "DOWN") {
+      const parentName = n.parentId ? byId.get(n.parentId)?.name ?? null : null;
+      await sendTelegram(fmtDown(n, parentName, e.ts));
+    } else if (e.from === "DOWN" && e.to === "UP") {
+      // Durasi down = jarak dari StatusEvent DOWN terakhir node ini (yang barusan
+      // ditutup oleh transisi ini) sampai sekarang. Query kecil, recovery jarang.
+      const down = await db.statusEvent.findFirst({
+        where: { nodeId: n.id, to: "DOWN" },
+        orderBy: { ts: "desc" },
+        select: { ts: true },
+      });
+      const ms = down ? e.ts.getTime() - down.ts.getTime() : 0;
+      await sendTelegram(fmtRecovery(n, ms, e.ts));
+    }
+  }
+
   const dt = Date.now() - t0;
   console.log(
     `[${now.toISOString()}] ping ${active.length} node dalam ${dt}ms, ${events.length} perubahan status`,
   );
   for (const e of events) {
-    const name = nodes.find((n) => n.id === e.nodeId)?.name ?? e.nodeId;
+    const name = byId.get(e.nodeId)?.name ?? e.nodeId;
     console.log(
       `  ${name}: ${e.from} → ${e.to}${e.rootCause ? ` (penyebab: ${e.rootCause})` : ""}`,
     );

@@ -11,6 +11,23 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ── User: akun login. Role menentukan hak akses (lihat CLAUDE.md / PRD §3.6) ──
+model User {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  name         String?
+  passwordHash String
+  role         Role     @default(VIEWER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum Role {
+  ADMIN // akses penuh: CRUD node, mode Edit canvas, import CSV, kelola user
+  OPERATOR // lihat semua + acknowledge alert, TIDAK bisa Edit canvas / CRUD
+  VIEWER // hanya lihat dashboard & canvas (mode View)
+}
+
 // ── Node: satu perangkat/target yang di-ping (ATM, gateway, switch, dll) ──
 model Node {
   id        String   @id @default(cuid())
@@ -37,6 +54,7 @@ model Node {
   enabled       Boolean @default(true)
   intervalSec   Int     @default(30)
   latencyWarnMs Int     @default(200)
+  maintenance   Boolean @default(false) // true = tetap dipantau, tapi alert DOWN dibungkam
 
   // status terakhir (cache; sumber histori tetap di StatusEvent/PingResult)
   status       Status    @default(UNKNOWN)
