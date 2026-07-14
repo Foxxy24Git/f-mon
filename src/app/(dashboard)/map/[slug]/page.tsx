@@ -16,7 +16,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
   const map = await db.map.findUnique({ where: { slug } });
   if (!map) notFound();
 
-  const [dbNodes, dbEdges] = await Promise.all([
+  const [dbNodes, dbEdges, dbAnnotations] = await Promise.all([
     db.node.findMany({
       where: { mapId: map.id },
       select: {
@@ -26,6 +26,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
       },
     }),
     db.edge.findMany({ where: { mapId: map.id } }),
+    db.annotation.findMany({ where: { mapId: map.id } }),
   ]);
 
   const nodes: Node[] = dbNodes.map((n) => ({
@@ -55,6 +56,19 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
     data: { lineType: e.lineType, color: e.color, width: e.width, label: e.label ?? undefined },
   }));
 
+  // Annotation (kotak daerah / teks) → node dekoratif. Kotak render di belakang
+  // (zIndex -1) sebagai latar; teks di lapisan normal.
+  const annotations: Node[] = dbAnnotations.map((a) => {
+    const isText = a.kind === "TEXT";
+    return {
+      id: a.id,
+      type: isText ? "text" : "box",
+      position: { x: a.posX, y: a.posY },
+      ...(isText ? {} : { zIndex: -1, style: { width: a.width, height: a.height } }),
+      data: { text: a.text, color: a.color, fontSize: a.fontSize, width: a.width, height: a.height },
+    };
+  });
+
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-2">
@@ -64,7 +78,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
       <div className="flex flex-1 overflow-hidden">
         {canEdit && <NodePalette />}
         <div className="flex-1">
-          <TopologyCanvas nodes={nodes} edges={edges} mapId={map.id} canEdit={canEdit} />
+          <TopologyCanvas nodes={nodes} edges={edges} annotations={annotations} mapId={map.id} canEdit={canEdit} />
         </div>
       </div>
     </div>

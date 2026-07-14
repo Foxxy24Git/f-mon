@@ -7,6 +7,7 @@
 // Panel hanya mengirim perubahan lewat callback; TopologyCanvas yang menyimpan
 // ke DB dan mem-patch state canvas.
 import { useEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
 import { ICONS } from "@/lib/icons";
 import type { DeviceNodeData } from "./DeviceNode";
@@ -31,6 +32,8 @@ type Props = {
   // patch = field DB (name/icon/size/labelMode/parentId). name kosong = biarkan.
   onUpdateNode: (id: string, patch: Record<string, unknown>) => void;
   onUpdateEdge: (id: string, patch: Record<string, unknown>) => void;
+  onUpdateAnnotation: (id: string, patch: Record<string, unknown>) => void;
+  onDelete: () => void; // hapus elemen terpilih (node/garis/kotak/teks)
 };
 
 const label = "block text-xs font-medium text-slate-500";
@@ -184,18 +187,78 @@ function EdgeForm({ edge, onUpdate }: { edge: Edge; onUpdate: Props["onUpdateEdg
   );
 }
 
-export default function PropertyPanel({ node, edge, allNodes, onUpdateNode, onUpdateEdge }: Props) {
+// Form untuk kotak daerah / teks (annotation). Ukuran kotak diatur lewat drag
+// resize di canvas, bukan di sini — panel hanya untuk isi, warna, dan font.
+function AnnotationForm({ node, onUpdate }: { node: Node; onUpdate: Props["onUpdateAnnotation"] }) {
+  const d = node.data as { text: string; color: string; fontSize: number };
+  const isBox = node.type === "box";
+  const [text, setText] = useState(d.text ?? "");
+  useEffect(() => setText(d.text ?? ""), [node.id, d.text]);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className={label}>{isBox ? "Label daerah" : "Isi teks"}</label>
+        <textarea
+          className={input}
+          rows={isBox ? 1 : 3}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => text !== (d.text ?? "") && onUpdate(node.id, { text })}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <div>
+          <label className={label}>Warna</label>
+          <input
+            type="color"
+            value={d.color ?? "#f97316"}
+            onChange={(e) => onUpdate(node.id, { color: e.target.value })}
+            className="mt-1 h-8 w-12 cursor-pointer rounded border border-slate-300"
+          />
+        </div>
+        <div className="flex-1">
+          <label className={label}>Ukuran font ({d.fontSize ?? 14}px)</label>
+          <input
+            type="range"
+            min={10}
+            max={48}
+            value={d.fontSize ?? 14}
+            onChange={(e) => onUpdate(node.id, { fontSize: Number(e.target.value) })}
+            className="mt-1 w-full"
+          />
+        </div>
+      </div>
+      {isBox && (
+        <p className="text-[11px] text-slate-400">Ukuran kotak: tarik sudut/sisinya di canvas.</p>
+      )}
+    </div>
+  );
+}
+
+export default function PropertyPanel({ node, edge, allNodes, onUpdateNode, onUpdateEdge, onUpdateAnnotation, onDelete }: Props) {
   if (!node && !edge) return null;
+  const isAnn = node?.type === "box" || node?.type === "text";
+  const title = isAnn ? (node!.type === "box" ? "Properti Kotak" : "Properti Teks") : node ? "Properti Node" : "Properti Garis";
+  const whatToDelete = isAnn ? (node!.type === "box" ? "kotak ini" : "teks ini") : node ? "node ini" : "garis ini";
   return (
     <div className="absolute right-3 top-16 z-10 w-64 rounded-lg bg-white p-3 shadow-lg ring-1 ring-slate-200">
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
-        {node ? "Properti Node" : "Properti Garis"}
-      </h2>
-      {node ? (
+      <h2 className="mb-3 text-sm font-semibold text-slate-700">{title}</h2>
+      {isAnn ? (
+        <AnnotationForm node={node!} onUpdate={onUpdateAnnotation} />
+      ) : node ? (
         <NodeForm node={node} allNodes={allNodes} onUpdate={onUpdateNode} />
       ) : (
         <EdgeForm edge={edge!} onUpdate={onUpdateEdge} />
       )}
+
+      <button
+        type="button"
+        onClick={() => { if (window.confirm(`Hapus ${whatToDelete}? Bisa dikembalikan dengan Ctrl+Z.`)) onDelete(); }}
+        className="mt-4 flex w-full items-center justify-center gap-1.5 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-sm font-medium text-red-600 hover:bg-red-100"
+      >
+        <Trash2 size={15} strokeWidth={1.75} /> Hapus
+      </button>
     </div>
   );
 }

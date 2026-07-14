@@ -90,6 +90,23 @@ model Edge {
   @@index([mapId])
 }
 
+// ── Annotation: kotak penanda daerah & teks bebas di canvas ──
+// DEKORATIF MURNI, sekelas Edge. TIDAK menyentuh Node/parentId/ping/root-cause.
+model Annotation {
+  id       String @id @default(cuid())
+  mapId    String
+  kind     String @default("BOX") // BOX | TEXT
+  posX     Float  @default(0)
+  posY     Float  @default(0)
+  width    Float  @default(320) // ukuran kotak (untuk TEXT: batas lebar wrap)
+  height   Float  @default(180) // ukuran kotak (untuk TEXT: auto, diabaikan)
+  text     String @default("") // label kotak / isi teks
+  color    String @default("#f97316") // warna kotak / warna teks
+  fontSize Int    @default(14)
+
+  @@index([mapId])
+}
+
 // ── Map: satu canvas topologi (mis. per regency + satu Overview) ──
 model Map {
   id     String @id @default(cuid())

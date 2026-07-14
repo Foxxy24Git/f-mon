@@ -37,7 +37,11 @@ const STATUS_STYLE: Record<Status, { ring: string; glow: string; blink: boolean 
   UNKNOWN: { ring: "#cbd5e1", glow: "rgba(203,213,225,0.4)", blink: false },
 };
 
-const HANDLE_STYLE = { width: 8, height: 8, background: "#64748b" } as const;
+// Handle tetap ada di DOM (biar koneksi tetap bisa dibuat/di-drop), tapi hanya
+// TERLIHAT saat node dipilih. Garis sendiri floating (lihat LinkEdge), jadi
+// handle sisi mana pun dipakai untuk memulai koneksi — hasil garisnya sama.
+const handleStyle = (selected: boolean) =>
+  ({ width: 9, height: 9, background: "#64748b", opacity: selected ? 1 : 0, transition: "opacity 120ms" }) as const;
 const SIDES = [
   { id: "top", pos: Position.Top },
   { id: "right", pos: Position.Right },
@@ -67,8 +71,8 @@ function DeviceNode({ id, data, selected }: NodeProps) {
       {SIDES.map((s) => (
         // dua handle per sisi (source+target), id sama → garis bisa dari/ke sisi ini.
         <div key={s.id}>
-          <Handle type="target" id={s.id} position={s.pos} style={HANDLE_STYLE} />
-          <Handle type="source" id={s.id} position={s.pos} style={HANDLE_STYLE} />
+          <Handle type="target" id={s.id} position={s.pos} style={handleStyle(selected)} />
+          <Handle type="source" id={s.id} position={s.pos} style={handleStyle(selected)} />
         </div>
       ))}
 

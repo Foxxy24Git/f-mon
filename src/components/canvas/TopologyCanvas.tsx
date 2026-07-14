@@ -25,6 +25,8 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import DeviceNode from "./DeviceNode";
+import BoxNode from "./BoxNode";
+import TextNode from "./TextNode";
 import LinkEdge from "./LinkEdge";
 import { DND_MIME } from "./NodePalette";
 import CanvasToolbar, { type SaveStatus } from "./CanvasToolbar";
@@ -32,11 +34,16 @@ import PropertyPanel from "./PropertyPanel";
 import { iconFor } from "@/lib/icons";
 
 const SNAP_GRID: [number, number] = [16, 16];
-const NODE_TYPES: NodeTypes = { device: DeviceNode };
+const NODE_TYPES: NodeTypes = { device: DeviceNode, box: BoxNode, text: TextNode };
 const EDGE_TYPES: EdgeTypes = { link: LinkEdge };
 const SAVE_DEBOUNCE_MS = 800;
 
-type Props = { nodes: Node[]; edges: Edge[]; mapId: string; canEdit: boolean };
+// tipe node dekoratif (kotak/teks) → disimpan ke /api/annotations, bukan /api/nodes.
+const isAnn = (type?: string): boolean => type === "box" || type === "text";
+const posPatchUrl = (id: string, type?: string): string =>
+  `${isAnn(type) ? "/api/annotations" : "/api/nodes"}/${id}`;
+
+type Props = { nodes: Node[]; edges: Edge[]; annotations: Node[]; mapId: string; canEdit: boolean };
 
 // Satu langkah undo = sepasang fungsi. undo() membalik aksi, redo() mengulanginya.
 // Cukup fleksibel untuk pindah/tambah/hapus tanpa bikin switch besar.
@@ -92,10 +99,47 @@ async function createNodeInDB(n: DbNode): Promise<Node> {
   return dbNodeToRF(await res.json());
 }
 
-function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initNodes);
+// ── Annotation (kotak daerah / teks) ↔ React Flow ──
+type DbAnn = {
+  id: string; mapId: string; kind: string; posX: number; posY: number;
+  width: number; height: number; text: string; color: string; fontSize: number;
+};
+function annToRF(a: DbAnn): Node {
+  const isText = a.kind === "TEXT";
+  return {
+    id: a.id,
+    type: isText ? "text" : "box",
+    position: { x: a.posX, y: a.posY },
+    // kotak jadi latar: render di belakang device node. teks tetap normal.
+    ...(isText ? {} : { zIndex: -1, style: { width: a.width, height: a.height } }),
+    data: { text: a.text, color: a.color, fontSize: a.fontSize, width: a.width, height: a.height },
+  };
+}
+// payload untuk membuat/mengembalikan annotation dari sebuah RF node.
+function annPayload(n: Node): Omit<DbAnn, "id" | "mapId"> {
+  const d = (n.data ?? {}) as Record<string, number | string>;
+  return {
+    kind: n.type === "text" ? "TEXT" : "BOX",
+    posX: n.position.x, posY: n.position.y,
+    width: Number(n.style?.width ?? d.width ?? 320),
+    height: Number(n.style?.height ?? d.height ?? 180),
+    text: String(d.text ?? ""), color: String(d.color ?? "#f97316"), fontSize: Number(d.fontSize ?? 14),
+  };
+}
+async function createAnnInDB(mapId: string, payload: Omit<DbAnn, "id" | "mapId">): Promise<Node> {
+  const res = await fetch("/api/annotations", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ mapId, ...payload }) });
+  return annToRF(await res.json());
+}
+
+function Flow({ nodes: initNodes, edges: initEdges, annotations: initAnn, mapId, canEdit }: Props) {
+  // annotation di depan array → device node & edge tergambar di atasnya (jadi latar).
+  const [nodes, setNodes, onNodesChange] = useNodesState([...initAnn, ...initNodes]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, deleteElements } = useReactFlow();
+
+  // id → type node, biar auto-save posisi tahu endpoint mana (nodes vs annotations).
+  const typeById = useRef<Map<string, string | undefined>>(new Map());
+  typeById.current = new Map(nodes.map((n) => [n.id, n.type]));
 
   // Non-ADMIN mulai (dan terkunci) di mode View.
   const [editMode, setEditMode] = useState(canEdit);
@@ -121,7 +165,7 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
     setSaveStatus("saving");
     await Promise.all(
       pending.map(([id, p]) =>
-        fetch(`/api/nodes/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: p.x, posY: p.y }) }),
+        fetch(posPatchUrl(id, typeById.current.get(id)), { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: p.x, posY: p.y }) }),
       ),
     );
     setSaveStatus("saved");
@@ -194,11 +238,11 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
   }, []);
   const onNodeDragStop = useCallback(
     (_e: unknown, _n: Node, dragged: Node[]) => {
-      const moves: { id: string; from: { x: number; y: number }; to: { x: number; y: number } }[] = [];
+      const moves: { id: string; type?: string; from: { x: number; y: number }; to: { x: number; y: number } }[] = [];
       for (const n of dragged) {
         const from = dragStart.current.get(n.id);
         if (from && (from.x !== n.position.x || from.y !== n.position.y))
-          moves.push({ id: n.id, from, to: { ...n.position } });
+          moves.push({ id: n.id, type: n.type, from, to: { ...n.position } });
       }
       if (!moves.length) return;
       const apply = (pick: "from" | "to") => {
@@ -209,7 +253,7 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
           }),
         );
         for (const m of moves)
-          fetch(`/api/nodes/${m.id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: m[pick].x, posY: m[pick].y }) });
+          fetch(posPatchUrl(m.id, m.type), { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ posX: m[pick].x, posY: m[pick].y }) });
       };
       pushHistory({ undo: () => apply("from"), redo: () => apply("to") });
     },
@@ -248,29 +292,43 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
   // case ini ditunda; tambahkan kalau menghapus node ber-anak jadi sering.
   const onDelete = useCallback(
     async ({ nodes: delNodes, edges: delEdges }: { nodes: Node[]; edges: Edge[] }) => {
-      // ambil data lengkap node SEBELUM dihapus, biar bisa dikembalikan persis.
+      const devNodes = delNodes.filter((n) => !isAnn(n.type));
+      const annNodes = delNodes.filter((n) => isAnn(n.type));
+      // device: ambil data lengkap SEBELUM dihapus, biar kembali persis (id sama).
       const fullNodes: DbNode[] = await Promise.all(
-        delNodes.map((n) => fetch(`/api/nodes/${n.id}`).then((r) => r.json())),
+        devNodes.map((n) => fetch(`/api/nodes/${n.id}`).then((r) => r.json())),
       );
-      await Promise.all(delNodes.map((n) => fetch(`/api/nodes/${n.id}`, { method: "DELETE" })));
-      await Promise.all(delEdges.map((e) => fetch(`/api/edges/${e.id}`, { method: "DELETE" })));
+      // annotation: cukup payload dari RF node (tak dirujuk siapa pun, id boleh baru).
+      const annPayloads = annNodes.map(annPayload);
+      let annIds = annNodes.map((n) => n.id);
+
+      await Promise.all([
+        ...devNodes.map((n) => fetch(`/api/nodes/${n.id}`, { method: "DELETE" })),
+        ...annIds.map((id) => fetch(`/api/annotations/${id}`, { method: "DELETE" })),
+        ...delEdges.map((e) => fetch(`/api/edges/${e.id}`, { method: "DELETE" })),
+      ]);
 
       let savedEdges = delEdges;
       pushHistory({
         undo: async () => {
           const rfNodes = await Promise.all(fullNodes.map(createNodeInDB));
+          const rfAnns = await Promise.all(annPayloads.map((p) => createAnnInDB(mapId, p)));
           const rfEdges = await Promise.all(savedEdges.map((e) => createEdgeInDB(mapId, e)));
-          savedEdges = rfEdges; // id edge baru → dipakai redo untuk menghapus lagi
-          setNodes((ns) => [...ns, ...rfNodes]);
+          savedEdges = rfEdges; // id baru → dipakai redo untuk menghapus lagi
+          annIds = rfAnns.map((n) => n.id);
+          setNodes((ns) => [...ns, ...rfNodes, ...rfAnns]);
           setEdges((es) => [...es, ...rfEdges]);
         },
         redo: async () => {
-          const nIds = new Set(fullNodes.map((n) => n.id));
+          const nIds = new Set([...fullNodes.map((n) => n.id), ...annIds]);
           const eIds = new Set(savedEdges.map((e) => e.id));
           setNodes((ns) => ns.filter((n) => !nIds.has(n.id)));
           setEdges((es) => es.filter((e) => !eIds.has(e.id)));
-          await Promise.all([...nIds].map((id) => fetch(`/api/nodes/${id}`, { method: "DELETE" })));
-          await Promise.all([...eIds].map((id) => fetch(`/api/edges/${id}`, { method: "DELETE" })));
+          await Promise.all([
+            ...fullNodes.map((n) => fetch(`/api/nodes/${n.id}`, { method: "DELETE" })),
+            ...annIds.map((id) => fetch(`/api/annotations/${id}`, { method: "DELETE" })),
+            ...[...eIds].map((id) => fetch(`/api/edges/${id}`, { method: "DELETE" })),
+          ]);
         },
       });
     },
@@ -307,6 +365,20 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
     },
     [setEdges],
   );
+  // hapus elemen yang sedang terpilih dari tombol panel. deleteElements memicu
+  // onDelete yang sama seperti tombol Backspace → hapus DB + undo ikut jalan.
+  const onDeleteSelected = useCallback(() => {
+    deleteElements({ nodes: selNode ? [selNode] : [], edges: selEdge ? [selEdge] : [] });
+  }, [deleteElements, selNode, selEdge]);
+
+  // annotation: patch data (text/color/fontSize) → state + /api/annotations.
+  const onUpdateAnnotation = useCallback(
+    (id: string, patch: Record<string, unknown>) => {
+      setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)));
+      fetch(`/api/annotations/${id}`, { method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify(patch) });
+    },
+    [setNodes],
+  );
 
   // keluar dari mode Edit → tutup panel & buang seleksi.
   const toggleMode = useCallback(() => {
@@ -328,8 +400,28 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
       if (!editMode) return;
       const key = e.dataTransfer.getData(DND_MIME);
       if (!key) return;
-      const meta = iconFor(key);
       const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+
+      // ── kotak daerah / teks (annotation) ──
+      if (key === "annotation:box" || key === "annotation:text") {
+        const kind = key === "annotation:text" ? "TEXT" : "BOX";
+        const text = window.prompt(kind === "TEXT" ? "Isi teks:" : "Nama daerah (label kotak, boleh kosong):")?.trim();
+        if (kind === "TEXT" && !text) return; // teks kosong tak ada gunanya; kotak boleh kosong
+        const created = await createAnnInDB(mapId, {
+          kind, posX: pos.x, posY: pos.y,
+          width: kind === "TEXT" ? 200 : 320, height: kind === "TEXT" ? 40 : 180,
+          text: text ?? "", color: "#f97316", fontSize: kind === "TEXT" ? 18 : 14,
+        });
+        setNodes((ns) => [...ns, created]);
+        let rec = created;
+        pushHistory({
+          undo: async () => { setNodes((ns) => ns.filter((n) => n.id !== rec.id)); await fetch(`/api/annotations/${rec.id}`, { method: "DELETE" }); },
+          redo: async () => { rec = await createAnnInDB(mapId, annPayload(rec)); setNodes((ns) => [...ns, rec]); },
+        });
+        return;
+      }
+
+      const meta = iconFor(key);
       // ponytail: prompt sementara. Ganti dengan form saat sudah ada.
       const ipAddress = window.prompt(`IP untuk ${meta.label} baru:`)?.trim();
       if (!ipAddress) return;
@@ -345,7 +437,7 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
       const created = dbNodeToRF(await res.json());
       setNodes((ns) => [...ns, created]);
     },
-    [editMode, screenToFlowPosition, mapId, setNodes],
+    [editMode, screenToFlowPosition, mapId, setNodes, pushHistory],
   );
 
   return (
@@ -372,6 +464,8 @@ function Flow({ nodes: initNodes, edges: initEdges, mapId, canEdit }: Props) {
           allNodes={nodes}
           onUpdateNode={onUpdateNode}
           onUpdateEdge={onUpdateEdge}
+          onUpdateAnnotation={onUpdateAnnotation}
+          onDelete={onDeleteSelected}
         />
       )}
       <ReactFlow
