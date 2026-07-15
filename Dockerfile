@@ -8,9 +8,10 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-# npm install (bukan npm ci): package-lock.json digenerate di Mac, cuma punya binary
-# native lightningcss untuk darwin. npm install resolve ulang sesuai platform container (Linux).
+# package-lock.json TIDAK di-copy: dia digenerate di Mac dan lockfile-nya cuma
+# mencatat binary native lightningcss untuk darwin, bukan linux-x64-gnu. Kalau
+# lockfile ikut di-copy, npm install tidak akan menambah entry Linux yang hilang.
+COPY package.json ./
 RUN npm install
 
 COPY . .
