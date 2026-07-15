@@ -1,8 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useSession, signOut } from "next-auth/react";
+import type { Status } from "@prisma/client";
+import LatencyChart from "@/components/LatencyChart";
 import { NODE_TYPES, STATUSES } from "@/lib/nodes";
+import { STATUS_BADGE } from "@/lib/statusColors";
 
 type Node = {
   id: string;
@@ -21,15 +24,6 @@ type Node = {
 
 type FormState = Partial<Node>;
 
-const STATUS_COLOR: Record<string, string> = {
-  UP: "bg-green-100 text-green-800",
-  DOWN: "bg-red-100 text-red-800",
-  WARNING: "bg-yellow-100 text-yellow-800",
-  UNREACHABLE: "bg-gray-200 text-gray-700",
-  PAUSED: "bg-blue-100 text-blue-800",
-  UNKNOWN: "bg-gray-100 text-gray-500",
-};
-
 export default function NodesPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN"; // CRUD & import hanya ADMIN
@@ -39,6 +33,9 @@ export default function NodesPage() {
   const [region, setRegion] = useState("");
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState<FormState | null>(null); // null = form tertutup
+  // Baris grafik yang terbuka. Sengaja hanya SATU: chart cuma di-render & di-fetch
+  // saat barisnya terbuka, jadi tabel 700 node tetap enteng.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<null | {
     created: number;
     updated: number;
@@ -191,6 +188,7 @@ export default function NodesPage() {
         <table className="w-full text-left text-sm">
           <thead className="bg-gray-100 text-gray-600">
             <tr>
+              <th className="w-6 px-2 py-2"></th>
               <th className="px-3 py-2">Nama</th>
               <th className="px-3 py-2">IP</th>
               <th className="px-3 py-2">Tipe</th>
@@ -202,46 +200,67 @@ export default function NodesPage() {
           </thead>
           <tbody>
             {nodes.map((n) => (
-              <tr key={n.id} className="border-t hover:bg-gray-50">
-                <td className="px-3 py-2 font-medium">
-                  {n.name}
-                  {!n.enabled && <span className="ml-1 text-xs text-gray-400">(nonaktif)</span>}
-                </td>
-                <td className="px-3 py-2 font-mono">{n.ipAddress}</td>
-                <td className="px-3 py-2">{n.type}</td>
-                <td className="px-3 py-2">{n.region ?? "-"}</td>
-                <td className="px-3 py-2">
-                  <span
-                    className={`rounded px-2 py-0.5 text-xs font-medium ${
-                      STATUS_COLOR[n.status] ?? ""
-                    }`}
+              <Fragment key={n.id}>
+                <tr
+                  className="cursor-pointer border-t hover:bg-gray-50"
+                  onClick={() => setExpandedId((cur) => (cur === n.id ? null : n.id))}
+                >
+                  <td className="px-2 py-2 text-gray-400 select-none">
+                    {expandedId === n.id ? "▼" : "▶"}
+                  </td>
+                  <td className="px-3 py-2 font-medium">
+                    {n.name}
+                    {!n.enabled && <span className="ml-1 text-xs text-gray-400">(nonaktif)</span>}
+                  </td>
+                  <td className="px-3 py-2 font-mono">{n.ipAddress}</td>
+                  <td className="px-3 py-2">{n.type}</td>
+                  <td className="px-3 py-2">{n.region ?? "-"}</td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={`rounded px-2 py-0.5 text-xs font-medium ${
+                        STATUS_BADGE[n.status as Status] ?? ""
+                      }`}
+                    >
+                      {n.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">{n.parent?.name ?? "-"}</td>
+                  <td
+                    className="px-3 py-2 text-right whitespace-nowrap"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {n.status}
-                  </span>
-                </td>
-                <td className="px-3 py-2">{n.parent?.name ?? "-"}</td>
-                <td className="px-3 py-2 text-right whitespace-nowrap">
-                  {isAdmin ? (
-                    <>
-                      <button className="text-blue-600 hover:underline" onClick={() => setForm(n)}>
-                        Edit
-                      </button>
-                      <button
-                        className="ml-3 text-red-600 hover:underline"
-                        onClick={() => deleteNode(n)}
-                      >
-                        Hapus
-                      </button>
-                    </>
-                  ) : (
-                    <span className="text-slate-300">—</span>
-                  )}
-                </td>
-              </tr>
+                    {isAdmin ? (
+                      <>
+                        <button
+                          className="text-blue-600 hover:underline"
+                          onClick={() => setForm(n)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="ml-3 text-red-600 hover:underline"
+                          onClick={() => deleteNode(n)}
+                        >
+                          Hapus
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-slate-300">—</span>
+                    )}
+                  </td>
+                </tr>
+                {expandedId === n.id && (
+                  <tr className="border-t bg-gray-50/50">
+                    <td colSpan={8} className="px-3 py-3">
+                      <LatencyChart nodeId={n.id} height={200} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
             {!loading && nodes.length === 0 && (
               <tr>
-                <td className="px-3 py-6 text-center text-gray-400" colSpan={7}>
+                <td className="px-3 py-6 text-center text-gray-400" colSpan={8}>
                   Belum ada node.
                 </td>
               </tr>

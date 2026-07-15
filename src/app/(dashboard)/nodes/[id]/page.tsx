@@ -5,17 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import type { Status } from "@prisma/client";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { useStatusStream } from "@/hooks/useStatusStream";
-import { STATUS_BADGE, STATUS_HEX } from "@/lib/statusColors";
+import LatencyChart from "@/components/LatencyChart";
+import { STATUS_BADGE } from "@/lib/statusColors";
 
 type NodeInfo = {
   id: string;
@@ -31,7 +23,6 @@ type NodeInfo = {
   enabled: boolean;
   parent: { id: string; name: string } | null;
 };
-type Point = { t: number; latency: number | null };
 type Event = {
   id: string;
   from: Status;
@@ -40,24 +31,9 @@ type Event = {
   rootCauseName: string | null;
 };
 
-const RANGES = ["1h", "24h", "7d", "30d"] as const;
-type Range = (typeof RANGES)[number];
-
-// Format sumbu X: jam untuk rentang pendek, tanggal untuk rentang panjang.
-function fmtTick(range: Range) {
-  return (t: number) => {
-    const d = new Date(t);
-    if (range === "1h" || range === "24h")
-      return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-    return d.toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
-  };
-}
-
 export default function NodeDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [node, setNode] = useState<NodeInfo | null>(null);
-  const [range, setRange] = useState<Range>("1h");
-  const [points, setPoints] = useState<Point[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [notFound, setNotFound] = useState(false);
 
@@ -67,27 +43,25 @@ export default function NodeDetailPage() {
     if (r.ok) setNode(await r.json());
   }, [id]);
 
-  const loadHistory = useCallback(async () => {
-    const r = await fetch(`/api/nodes/${id}/history?range=${range}`);
-    if (r.ok) {
-      const d = await r.json();
-      setPoints(d.points);
-      setEvents(d.events);
-    }
-  }, [id, range]);
+  // Hanya events. Grafik (points) diurus LatencyChart sendiri karena ikut
+  // state `range`-nya, sedangkan events tidak tergantung range.
+  const loadEvents = useCallback(async () => {
+    const r = await fetch(`/api/nodes/${id}/history`);
+    if (r.ok) setEvents((await r.json()).events);
+  }, [id]);
 
   useEffect(() => {
     loadNode();
   }, [loadNode]);
   useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+    loadEvents();
+  }, [loadEvents]);
 
   // Status live: kalau node INI berubah, update badge + tarik ulang riwayat.
   useStatusStream((nodeId, status) => {
     if (nodeId !== id) return;
     setNode((n) => (n ? { ...n, status } : n));
-    loadHistory();
+    loadEvents();
   });
 
   if (notFound)
@@ -133,54 +107,8 @@ export default function NodeDetailPage() {
       </dl>
 
       {/* Grafik latency */}
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="font-semibold">Latency</h2>
-        <div className="flex gap-1">
-          {RANGES.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRange(r)}
-              className={`rounded px-3 py-1 text-sm ${
-                range === r ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              {r}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="mb-8 rounded border bg-white p-3">
-        {points.length === 0 ? (
-          <p className="py-16 text-center text-gray-400">Belum ada data ping untuk rentang ini.</p>
-        ) : (
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis
-                dataKey="t"
-                type="number"
-                domain={["dataMin", "dataMax"]}
-                scale="time"
-                tickFormatter={fmtTick(range)}
-                tick={{ fontSize: 11 }}
-                minTickGap={40}
-              />
-              <YAxis unit=" ms" tick={{ fontSize: 11 }} width={56} />
-              <Tooltip
-                labelFormatter={(t) => new Date(Number(t)).toLocaleString("id-ID")}
-                formatter={(v) => [v == null ? "gagal" : `${Math.round(Number(v))} ms`, "latency"]}
-              />
-              <Line
-                type="monotone"
-                dataKey="latency"
-                stroke={STATUS_HEX.UP}
-                dot={false}
-                connectNulls={false}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+      <div className="mb-8">
+        <LatencyChart nodeId={id} />
       </div>
 
       {/* Riwayat perubahan status */}

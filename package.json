@@ -14,6 +14,7 @@
     "db:studio": "prisma studio",
     "db:seed": "node --env-file=.env --import tsx prisma/seed.ts",
     "seed:admin": "node --env-file=.env --import tsx prisma/seed-admin.ts",
+    "seed:ping-sim": "node --env-file=.env --import tsx prisma/seed-ping-sim.ts",
     "worker": "node --env-file=.env --import tsx src/worker/pinger.ts",
     "worker:once": "node --env-file=.env --import tsx src/worker/pinger.ts --once"
   },
