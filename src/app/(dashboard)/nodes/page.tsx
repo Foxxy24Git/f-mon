@@ -20,7 +20,10 @@ type Node = {
   latencyWarnMs: number;
   parentId: string | null;
   parent: { id: string; name: string } | null;
+  mapId: string;
 };
+
+type MapOpt = { id: string; name: string; slug: string };
 
 type FormState = Partial<Node>;
 
@@ -28,6 +31,9 @@ export default function NodesPage() {
   const { data: session } = useSession();
   const isAdmin = session?.user?.role === "ADMIN"; // CRUD & import hanya ADMIN
   const [nodes, setNodes] = useState<Node[]>([]);
+  // Daftar map di-fetch sekali: dipakai dropdown form + nama map di kolom tabel
+  // (Node.mapId cuma string, tidak ada relasi ke Map di schema).
+  const [maps, setMaps] = useState<MapOpt[]>([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [region, setRegion] = useState("");
@@ -56,6 +62,12 @@ export default function NodesPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    fetch("/api/maps")
+      .then((r) => r.json())
+      .then(setMaps);
+  }, []);
 
   async function saveNode(data: FormState) {
     const editing = Boolean(data.id);
@@ -118,7 +130,13 @@ export default function NodesPage() {
               <button
                 className="rounded bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-700"
                 onClick={() =>
-                  setForm({ type: "ATM", intervalSec: 30, latencyWarnMs: 200, enabled: true })
+                  setForm({
+                    type: "ATM",
+                    intervalSec: 30,
+                    latencyWarnMs: 200,
+                    enabled: true,
+                    mapId: maps.find((m) => m.slug === "default")?.id ?? maps[0]?.id,
+                  })
                 }
               >
                 + Tambah Node
@@ -193,6 +211,7 @@ export default function NodesPage() {
               <th className="px-3 py-2">IP</th>
               <th className="px-3 py-2">Tipe</th>
               <th className="px-3 py-2">Region</th>
+              <th className="px-3 py-2">Map</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2">Parent</th>
               <th className="px-3 py-2"></th>
@@ -215,6 +234,7 @@ export default function NodesPage() {
                   <td className="px-3 py-2 font-mono">{n.ipAddress}</td>
                   <td className="px-3 py-2">{n.type}</td>
                   <td className="px-3 py-2">{n.region ?? "-"}</td>
+                  <td className="px-3 py-2">{maps.find((m) => m.id === n.mapId)?.name ?? "-"}</td>
                   <td className="px-3 py-2">
                     <span
                       className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -251,7 +271,7 @@ export default function NodesPage() {
                 </tr>
                 {expandedId === n.id && (
                   <tr className="border-t bg-gray-50/50">
-                    <td colSpan={8} className="px-3 py-3">
+                    <td colSpan={9} className="px-3 py-3">
                       <LatencyChart nodeId={n.id} height={200} />
                     </td>
                   </tr>
@@ -260,7 +280,7 @@ export default function NodesPage() {
             ))}
             {!loading && nodes.length === 0 && (
               <tr>
-                <td className="px-3 py-6 text-center text-gray-400" colSpan={8}>
+                <td className="px-3 py-6 text-center text-gray-400" colSpan={9}>
                   Belum ada node.
                 </td>
               </tr>
@@ -270,7 +290,14 @@ export default function NodesPage() {
       </div>
 
       {form && (
-        <NodeForm initial={form} nodes={nodes} onCancel={() => setForm(null)} onSave={saveNode} />
+        <NodeForm
+          initial={form}
+          nodes={nodes}
+          maps={maps}
+          onMapCreated={(m) => setMaps((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name)))}
+          onCancel={() => setForm(null)}
+          onSave={saveNode}
+        />
       )}
     </main>
   );
@@ -279,16 +306,35 @@ export default function NodesPage() {
 function NodeForm({
   initial,
   nodes,
+  maps,
+  onMapCreated,
   onCancel,
   onSave,
 }: {
   initial: FormState;
   nodes: Node[];
+  maps: MapOpt[];
+  onMapCreated: (m: MapOpt) => void;
   onCancel: () => void;
   onSave: (data: FormState) => void;
 }) {
   const [f, setF] = useState<FormState>(initial);
   const set = (k: keyof FormState, v: unknown) => setF((prev) => ({ ...prev, [k]: v }));
+
+  // Bikin map baru langsung dari form node, lalu pilih otomatis map itu.
+  async function addMap() {
+    const name = window.prompt("Nama map baru (mis. Padang Panjang):")?.trim();
+    if (!name) return;
+    const res = await fetch("/api/maps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) return alert(data.error ?? "Gagal bikin map");
+    onMapCreated(data);
+    set("mapId", data.id);
+  }
 
   return (
     <div
@@ -339,6 +385,29 @@ function NodeForm({
               value={f.branch ?? ""}
               onChange={(e) => set("branch", e.target.value)}
             />
+          </Field>
+          <Field label="Map (canvas)">
+            <div className="flex gap-1">
+              <select
+                className="input flex-1"
+                value={f.mapId ?? ""}
+                onChange={(e) => set("mapId", e.target.value)}
+              >
+                {maps.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={addMap}
+                title="Tambah map baru"
+                className="rounded border px-2 text-lg leading-none hover:bg-gray-100"
+              >
+                +
+              </button>
+            </div>
           </Field>
           <Field label="Parent">
             <select

@@ -41,7 +41,7 @@ function BoxNode({ id, data, selected }: NodeProps) {
         style={{ border: `2px solid ${d.color}`, background: withAlpha(d.color, 0.1) }}
       >
         <div
-          className="px-2 py-1 font-bold tracking-wide uppercase"
+          className="px-2 py-1 text-center font-bold tracking-wide uppercase"
           style={{ color: d.color, fontSize: d.fontSize }}
         >
           {d.text}

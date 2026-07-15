@@ -75,7 +75,14 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
         <span className="text-xs text-slate-500">{nodes.length} node</span>
       </header>
       <div className="flex-1 overflow-hidden">
-        <TopologyCanvas nodes={nodes} edges={edges} annotations={annotations} mapId={map.id} canEdit={canEdit} />
+        <TopologyCanvas
+          nodes={nodes}
+          edges={edges}
+          annotations={annotations}
+          mapId={map.id}
+          bgType={map.bgType}
+          canEdit={canEdit}
+        />
       </div>
     </div>
   );

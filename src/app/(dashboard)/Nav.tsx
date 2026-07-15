@@ -9,6 +9,7 @@ export default function Nav({ maps }: { maps: { slug: string; name: string }[] }
   const items = [
     { href: "/", label: "Ringkasan" },
     { href: "/nodes", label: "Node" },
+    { href: "/maps", label: "Map" },
     ...maps.map((m) => ({ href: `/map/${m.slug}`, label: m.name })),
   ];
 

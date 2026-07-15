@@ -43,7 +43,14 @@ const isAnn = (type?: string): boolean => type === "box" || type === "text";
 const posPatchUrl = (id: string, type?: string): string =>
   `${isAnn(type) ? "/api/annotations" : "/api/nodes"}/${id}`;
 
-type Props = { nodes: Node[]; edges: Edge[]; annotations: Node[]; mapId: string; canEdit: boolean };
+type Props = {
+  nodes: Node[];
+  edges: Edge[];
+  annotations: Node[];
+  mapId: string;
+  bgType: string; // dots | grid | plain — diatur per map di /maps
+  canEdit: boolean;
+};
 
 // Satu langkah undo = sepasang fungsi. undo() membalik aksi, redo() mengulanginya.
 // Cukup fleksibel untuk pindah/tambah/hapus tanpa bikin switch besar.
@@ -131,7 +138,14 @@ async function createAnnInDB(mapId: string, payload: Omit<DbAnn, "id" | "mapId">
   return annToRF(await res.json());
 }
 
-function Flow({ nodes: initNodes, edges: initEdges, annotations: initAnn, mapId, canEdit }: Props) {
+function Flow({
+  nodes: initNodes,
+  edges: initEdges,
+  annotations: initAnn,
+  mapId,
+  bgType,
+  canEdit,
+}: Props) {
   // annotation di depan array → device node & edge tergambar di atasnya (jadi latar).
   const [nodes, setNodes, onNodesChange] = useNodesState([...initAnn, ...initNodes]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initEdges);
@@ -497,8 +511,15 @@ function Flow({ nodes: initNodes, edges: initEdges, annotations: initAnn, mapId,
           fitView
           proOptions={{ hideAttribution: true }}
         >
-          {/* grid & minimap ikut hilang di mode View — fokus ke status node */}
-          {editMode && showGrid && <Background variant={BackgroundVariant.Dots} gap={16} size={1} />}
+          {/* grid & minimap ikut hilang di mode View — fokus ke status node.
+              bgType "plain" = tanpa background sama sekali. */}
+          {editMode && showGrid && bgType !== "plain" && (
+            <Background
+              variant={bgType === "grid" ? BackgroundVariant.Lines : BackgroundVariant.Dots}
+              gap={16}
+              size={1}
+            />
+          )}
           {editMode && <MiniMap pannable zoomable />}
         </ReactFlow>
       </div>

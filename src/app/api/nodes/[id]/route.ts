@@ -43,6 +43,9 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (b.enabled !== undefined) data.enabled = b.enabled;
   if (b.parentId !== undefined)
     data.parent = b.parentId ? { connect: { id: b.parentId } } : { disconnect: true };
+  // Pindah map. parentId TIDAK ikut direset: relasi root-cause boleh lintas map
+  // (mis. server di map "Server" tetap anak dari gateway di map "Padang").
+  if (b.mapId !== undefined) data.mapId = b.mapId;
   // properti canvas (auto-save posisi + edit via PropertyPanel)
   if (b.posX !== undefined) data.posX = b.posX;
   if (b.posY !== undefined) data.posY = b.posY;
@@ -52,6 +55,12 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   try {
     const node = await db.node.update({ where: { id }, data });
+    // Node pindah map → garis lamanya ikut ke map lama dan menunjuk node yang
+    // sudah tidak ada di sana. Hapus supaya canvas tidak punya edge menggantung.
+    if (b.mapId !== undefined)
+      await db.edge.deleteMany({
+        where: { mapId: { not: node.mapId }, OR: [{ sourceId: id }, { targetId: id }] },
+      });
     return NextResponse.json(node);
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError) {
