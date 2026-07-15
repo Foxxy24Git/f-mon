@@ -1,5 +1,4 @@
-# F-mon — Fase 1: baru service database saja.
-# App & ping worker menyusul di fase berikutnya.
+# F-mon — Fase 3: db + app + worker, satu image untuk app & worker.
 services:
   db:
     image: postgres:16
@@ -19,6 +18,35 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  app:
+    build: .
+    container_name: fmon-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # di dalam network Docker, host DB adalah nama service `db`, bukan localhost
+      DATABASE_URL: postgresql://fmon:password@db:5432/fmon
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    container_name: fmon-worker
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://fmon:password@db:5432/fmon
+    cap_add:
+      # fping butuh raw socket (CLAUDE.md §7)
+      - NET_RAW
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   fmon-pgdata:
