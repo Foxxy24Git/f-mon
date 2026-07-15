@@ -27,6 +27,10 @@ services:
     environment:
       # di dalam network Docker, host DB adalah nama service `db`, bukan localhost
       DATABASE_URL: postgresql://fmon:password@db:5432/fmon
+    volumes:
+      # npm script app pakai `node --env-file=.env`, butuh file .env fisik di container
+      # (bukan cuma env var) — mount read-only, tidak ikut ke image build
+      - ./.env:/app/.env:ro
     ports:
       - "3000:3000"
     depends_on:
@@ -41,6 +45,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://fmon:password@db:5432/fmon
+    volumes:
+      - ./.env:/app/.env:ro
     cap_add:
       # fping butuh raw socket (CLAUDE.md §7)
       - NET_RAW
