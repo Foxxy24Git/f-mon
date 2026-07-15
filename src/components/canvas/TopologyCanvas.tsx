@@ -28,7 +28,7 @@ import DeviceNode from "./DeviceNode";
 import BoxNode from "./BoxNode";
 import TextNode from "./TextNode";
 import LinkEdge from "./LinkEdge";
-import { DND_MIME } from "./NodePalette";
+import NodePalette, { DND_MIME } from "./NodePalette";
 import CanvasToolbar, { type SaveStatus } from "./CanvasToolbar";
 import PropertyPanel from "./PropertyPanel";
 import { iconFor } from "@/lib/icons";
@@ -441,59 +441,67 @@ function Flow({ nodes: initNodes, edges: initEdges, annotations: initAnn, mapId,
   );
 
   return (
-    <div className="relative h-full w-full" onDragOver={onDragOver} onDrop={onDrop}>
-      <CanvasToolbar
-        canEdit={canEdit}
-        editMode={editMode}
-        onToggleMode={toggleMode}
-        showGrid={showGrid}
-        onToggleGrid={() => setShowGrid((g) => !g)}
-        snap={snap}
-        onToggleSnap={() => setSnap((s) => !s)}
-        saveStatus={saveStatus}
-        onSave={flushSave}
-        canUndo={undoStack.current.length > 0}
-        canRedo={redoStack.current.length > 0}
-        onUndo={doUndo}
-        onRedo={doRedo}
-      />
-      {editMode && (
-        <PropertyPanel
-          node={selNode}
-          edge={selEdge}
-          allNodes={nodes}
-          onUpdateNode={onUpdateNode}
-          onUpdateEdge={onUpdateEdge}
-          onUpdateAnnotation={onUpdateAnnotation}
-          onDelete={onDeleteSelected}
+    // Palette dipindah ke sini (dulu di page.tsx) supaya ikut hilang di mode View:
+    // editMode itu state client, page.tsx (server component) tak bisa melihatnya.
+    <div className="flex h-full w-full">
+      {editMode && <NodePalette />}
+      <div className="relative flex-1" onDragOver={onDragOver} onDrop={onDrop}>
+        <CanvasToolbar
+          canEdit={canEdit}
+          editMode={editMode}
+          onToggleMode={toggleMode}
+          showGrid={showGrid}
+          onToggleGrid={() => setShowGrid((g) => !g)}
+          snap={snap}
+          onToggleSnap={() => setSnap((s) => !s)}
+          saveStatus={saveStatus}
+          onSave={flushSave}
+          canUndo={undoStack.current.length > 0}
+          canRedo={redoStack.current.length > 0}
+          onUndo={doUndo}
+          onRedo={doRedo}
         />
-      )}
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={NODE_TYPES}
-        edgeTypes={EDGE_TYPES}
-        onConnect={onConnect}
-        onDelete={onDelete}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={onNodeDragStop}
-        onSelectionChange={onSelectionChange}
-        nodesDraggable={editMode}
-        nodesConnectable={editMode}
-        elementsSelectable={editMode}
-        minZoom={0.1}
-        maxZoom={3}
-        snapToGrid={snap}
-        snapGrid={SNAP_GRID}
-        onlyRenderVisibleElements
-        fitView
-        proOptions={{ hideAttribution: true }}
-      >
-        {showGrid && <Background variant={BackgroundVariant.Dots} gap={16} size={1} />}
-        <MiniMap pannable zoomable />
-      </ReactFlow>
+        {editMode && (
+          <PropertyPanel
+            node={selNode}
+            edge={selEdge}
+            allNodes={nodes}
+            onUpdateNode={onUpdateNode}
+            onUpdateEdge={onUpdateEdge}
+            onUpdateAnnotation={onUpdateAnnotation}
+            onDelete={onDeleteSelected}
+          />
+        )}
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={handleNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
+          onConnect={onConnect}
+          onDelete={onDelete}
+          onNodeDragStart={onNodeDragStart}
+          onNodeDragStop={onNodeDragStop}
+          onSelectionChange={onSelectionChange}
+          // kotak daerah harus tetap di zIndex -1 walau terpilih (default RF menaikkannya)
+          elevateNodesOnSelect={false}
+          nodesDraggable={editMode}
+          nodesConnectable={editMode}
+          elementsSelectable={editMode}
+          minZoom={0.1}
+          maxZoom={3}
+          snapToGrid={snap}
+          snapGrid={SNAP_GRID}
+          onlyRenderVisibleElements
+          fitView
+          proOptions={{ hideAttribution: true }}
+        >
+          {/* grid & minimap ikut hilang di mode View — fokus ke status node */}
+          {editMode && showGrid && <Background variant={BackgroundVariant.Dots} gap={16} size={1} />}
+          {editMode && <MiniMap pannable zoomable />}
+        </ReactFlow>
+      </div>
     </div>
   );
 }

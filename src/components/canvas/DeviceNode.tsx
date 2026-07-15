@@ -49,6 +49,19 @@ const SIDES = [
   { id: "left", pos: Position.Left },
 ] as const;
 
+// Siluet "ledakan" merah di belakang icon saat node DOWN (referensi gambar Fx).
+// Bintang 12 sudut (outer/inner radius bergantian), viewBox 100×100, center 50,50.
+// Dihitung SEKALI saat modul dimuat, bukan tiap render.
+const BURST_POINTS = (() => {
+  const spikes = 12, cx = 50, cy = 50, outer = 50, inner = 33, pts: string[] = [];
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI * i) / spikes - Math.PI / 2;
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`);
+  }
+  return pts.join(" ");
+})();
+
 function labelText(d: DeviceNodeData, status: Status): string {
   if (d.labelMode === "NAME") return d.name;
   if (d.labelMode === "NAME_IP_LATENCY") {
@@ -65,6 +78,7 @@ function DeviceNode({ id, data, selected }: NodeProps) {
   const status = liveStatus ?? d.status;
   const st = STATUS_STYLE[status];
   const { Icon } = iconFor(d.icon);
+  const offline = status === "DOWN";
 
   return (
     <div className="flex flex-col items-center gap-1 select-none">
@@ -76,16 +90,29 @@ function DeviceNode({ id, data, selected }: NodeProps) {
         </div>
       ))}
 
-      <div
-        className={`flex items-center justify-center rounded-xl bg-white ${st.blink ? "animate-pulse" : ""}`}
-        style={{
-          width: d.size,
-          height: d.size,
-          border: `3px solid ${st.ring}`,
-          boxShadow: `0 0 0 ${selected ? "3px #3b82f6, 0 0 12px 2px" : "0px "}${st.glow}`,
-        }}
-      >
-        <Icon size={Math.round(d.size * 0.55)} color={st.ring} strokeWidth={1.75} />
+      <div className="relative flex items-center justify-center">
+        {/* Ledakan merah di belakang icon — hanya DOWN, ikut berkedip. */}
+        {offline ? (
+          <svg
+            viewBox="0 0 100 100"
+            className="pointer-events-none absolute animate-pulse"
+            style={{ width: d.size * 1.7, height: d.size * 1.7, left: "50%", top: "50%", transform: "translate(-50%,-50%)" }}
+          >
+            <polygon points={BURST_POINTS} fill="#dc2626" />
+          </svg>
+        ) : null}
+
+        <div
+          className={`relative flex items-center justify-center rounded-xl bg-white ${st.blink ? "animate-pulse" : ""}`}
+          style={{
+            width: d.size,
+            height: d.size,
+            border: `3px solid ${st.ring}`,
+            boxShadow: `0 0 0 ${selected ? "3px #3b82f6, 0 0 12px 2px" : "0px "}${st.glow}`,
+          }}
+        >
+          <Icon size={Math.round(d.size * 0.55)} color={st.ring} strokeWidth={1.75} />
+        </div>
       </div>
 
       <div className="max-w-[140px] whitespace-pre text-center text-[11px] leading-tight font-medium text-slate-700">

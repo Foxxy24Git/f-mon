@@ -25,6 +25,7 @@ import {
   type InternalNode,
   type Node,
 } from "@xyflow/react";
+import type { Status } from "@prisma/client";
 import { useCanvasStore } from "@/store/canvasStore";
 
 export type LinkEdgeData = {
@@ -38,13 +39,30 @@ export type LinkEdgeData = {
 // Garis TIDAK menempel ke handle tetap, tapi ke titik di batas node yang
 // MENGHADAP node lawan. Jadi garis selalu rapi & ikut menyesuaikan saat node
 // digeser (bukan memaksa ke sisi tertentu yang bikin garis melengkung jelek).
+// Kotak ICON-nya saja, bukan bounding box node (yang ikut menghitung label di
+// bawah icon). Kalau pakai bbox, garis berhenti di tepi teks → kelihatan
+// menggantung jauh dari icon. Icon selalu size×size, di tengah-atas node.
+function iconBox(node: InternalNode<Node>) {
+  const size = (node.data as { size?: number } | undefined)?.size;
+  const w = size ?? node.measured.width ?? 0;
+  const h = size ?? node.measured.height ?? 0;
+  return {
+    cx: node.internals.positionAbsolute.x + (node.measured.width ?? w) / 2,
+    cy: node.internals.positionAbsolute.y + h / 2,
+    w,
+    h,
+  };
+}
+
 function getNodeIntersection(node: InternalNode<Node>, other: InternalNode<Node>) {
-  const w = (node.measured.width ?? 0) / 2;
-  const h = (node.measured.height ?? 0) / 2;
-  const x2 = node.internals.positionAbsolute.x + w;
-  const y2 = node.internals.positionAbsolute.y + h;
-  const x1 = other.internals.positionAbsolute.x + (other.measured.width ?? 0) / 2;
-  const y1 = other.internals.positionAbsolute.y + (other.measured.height ?? 0) / 2;
+  const box = iconBox(node);
+  const o = iconBox(other);
+  const w = box.w / 2;
+  const h = box.h / 2;
+  const x2 = box.cx;
+  const y2 = box.cy;
+  const x1 = o.cx;
+  const y1 = o.cy;
 
   const xx1 = (x1 - x2) / (2 * w) - (y1 - y2) / (2 * h);
   const yy1 = (x1 - x2) / (2 * w) + (y1 - y2) / (2 * h);
@@ -55,13 +73,10 @@ function getNodeIntersection(node: InternalNode<Node>, other: InternalNode<Node>
 }
 
 function edgeSide(node: InternalNode<Node>, p: { x: number; y: number }): Position {
-  const nx = node.internals.positionAbsolute.x;
-  const ny = node.internals.positionAbsolute.y;
-  const w = node.measured.width ?? 0;
-  const h = node.measured.height ?? 0;
-  if (Math.round(p.x) <= Math.round(nx) + 1) return Position.Left;
-  if (Math.round(p.x) >= Math.round(nx + w) - 1) return Position.Right;
-  if (Math.round(p.y) <= Math.round(ny) + 1) return Position.Top;
+  const { cx, cy, w, h } = iconBox(node);
+  if (Math.round(p.x) <= Math.round(cx - w / 2) + 1) return Position.Left;
+  if (Math.round(p.x) >= Math.round(cx + w / 2) - 1) return Position.Right;
+  if (Math.round(p.y) <= Math.round(cy - h / 2) + 1) return Position.Top;
   return Position.Bottom;
 }
 
@@ -84,11 +99,20 @@ function LinkEdge({ id, source, target, data, selected }: EdgeProps) {
   const sourceNode = useInternalNode(source);
   const targetNode = useInternalNode(target);
 
-  // Status kedua ujung dari store (kalau sudah ter-load). null = anggap normal.
-  const srcStatus = useCanvasStore((s) => s.nodes[source]?.status);
-  const tgtStatus = useCanvasStore((s) => s.nodes[target]?.status);
+  // Status kedua ujung: store (SSE) dulu, fallback ke data node — sama seperti
+  // DeviceNode. Kalau cuma baca store, garis tetap normal selama store belum
+  // ter-load padahal node-nya sudah merah.
+  const srcStatus =
+    useCanvasStore((s) => s.nodes[source]?.status) ??
+    (sourceNode?.data as { status?: Status } | undefined)?.status;
+  const tgtStatus =
+    useCanvasStore((s) => s.nodes[target]?.status) ??
+    (targetNode?.data as { status?: Status } | undefined)?.status;
   const degraded =
     (srcStatus != null && srcStatus !== "UP") || (tgtStatus != null && tgtStatus !== "UP");
+  // "Putus": salah satu ujung benar-benar mati (DOWN). Garis jadi merah + berkedip.
+  // Status lain yang non-UP (WARNING/UNREACHABLE dll) tetap sekadar pudar.
+  const broken = srcStatus === "DOWN" || tgtStatus === "DOWN";
 
   // Node belum terukur (mis. saat pertama render) → jangan gambar path NaN.
   if (!sourceNode || !targetNode) return null;
@@ -112,11 +136,12 @@ function LinkEdge({ id, source, target, data, selected }: EdgeProps) {
       <BaseEdge
         id={id}
         path={path}
+        className={broken ? "animate-pulse" : undefined} // kedip saat putus
         style={{
-          stroke: color,
-          strokeWidth: selected ? width + 1 : width,
+          stroke: broken ? "#dc2626" : color, // merah saat putus
+          strokeWidth: broken ? width + 1 : selected ? width + 1 : width,
           strokeDasharray: degraded ? "6 4" : undefined, // putus-putus kalau ujung tak UP
-          opacity: degraded ? 0.4 : 1, // pudar
+          opacity: broken ? 1 : degraded ? 0.4 : 1, // putus tetap jelas, non-UP lain pudar
           filter: selected ? "drop-shadow(0 0 3px #3b82f6)" : undefined,
         }}
       />

@@ -6,7 +6,6 @@
 import { useReactFlow } from "@xyflow/react";
 import {
   Pencil,
-  Eye,
   Grid3x3,
   Magnet,
   ZoomIn,
@@ -66,18 +65,27 @@ function Btn({
 export default function CanvasToolbar(p: Props) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
 
+  // Mode View = fokus ke status node: semua tool edit disembunyikan, sisakan
+  // tombol untuk kembali ke mode Edit saja.
+  if (!p.editMode) {
+    if (!p.canEdit) return null; // non-ADMIN: tak ada tombol sama sekali
+    return (
+      <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-white/90 p-1 shadow ring-1 ring-slate-200 backdrop-blur">
+        <Btn title="Kembali ke mode Edit" onClick={p.onToggleMode}>
+          <Pencil size={15} />
+          Edit
+        </Btn>
+      </div>
+    );
+  }
+
   return (
     <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-1 rounded-lg bg-white/90 p-1 shadow ring-1 ring-slate-200 backdrop-blur">
-      {/* Mode Edit / View — hanya ADMIN yang boleh mengganti mode */}
-      {p.canEdit && (
-        <>
-          <Btn active={p.editMode} title="Mode Edit (node bisa digeser & diedit)" onClick={p.onToggleMode}>
-            {p.editMode ? <Pencil size={15} /> : <Eye size={15} />}
-            {p.editMode ? "Edit" : "View"}
-          </Btn>
-          <span className="mx-1 h-5 w-px bg-slate-200" />
-        </>
-      )}
+      <Btn active title="Mode Edit aktif — klik untuk ke mode View" onClick={p.onToggleMode}>
+        <Pencil size={15} />
+        Edit
+      </Btn>
+      <span className="mx-1 h-5 w-px bg-slate-200" />
 
       <Btn active={p.showGrid} title="Grid" onClick={p.onToggleGrid}>
         <Grid3x3 size={15} />

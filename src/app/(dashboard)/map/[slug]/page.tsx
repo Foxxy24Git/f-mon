@@ -5,7 +5,6 @@ import type { Node, Edge } from "@xyflow/react";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import TopologyCanvas from "@/components/canvas/TopologyCanvas";
-import NodePalette from "@/components/canvas/NodePalette";
 
 export default async function MapPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -70,16 +69,13 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
   });
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-slate-200 px-4 py-2">
         <h1 className="text-sm font-semibold">{map.name}</h1>
         <span className="text-xs text-slate-500">{nodes.length} node</span>
       </header>
-      <div className="flex flex-1 overflow-hidden">
-        {canEdit && <NodePalette />}
-        <div className="flex-1">
-          <TopologyCanvas nodes={nodes} edges={edges} annotations={annotations} mapId={map.id} canEdit={canEdit} />
-        </div>
+      <div className="flex-1 overflow-hidden">
+        <TopologyCanvas nodes={nodes} edges={edges} annotations={annotations} mapId={map.id} canEdit={canEdit} />
       </div>
     </div>
   );
