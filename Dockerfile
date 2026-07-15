@@ -9,7 +9,9 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci
+# npm install (bukan npm ci): package-lock.json digenerate di Mac, cuma punya binary
+# native lightningcss untuk darwin. npm install resolve ulang sesuai platform container (Linux).
+RUN npm install
 
 COPY . .
 RUN npx prisma generate
