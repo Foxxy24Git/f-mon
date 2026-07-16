@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
         type: b.type ?? "ATM",
         region: b.region?.trim() || null,
         branch: b.branch?.trim() || null,
+        atmId: b.atmId?.trim() || null,
         parentId: b.parentId || null,
         intervalSec: b.intervalSec ?? 30,
         latencyWarnMs: b.latencyWarnMs ?? 200,

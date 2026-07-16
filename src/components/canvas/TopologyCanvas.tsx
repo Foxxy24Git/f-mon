@@ -87,7 +87,7 @@ async function createEdgeInDB(mapId: string, e: Edge): Promise<Edge> {
 
 // Node lengkap dari DB (untuk mengembalikan node yang dihapus PERSIS seperti semula).
 type DbNode = {
-  id: string; name: string; ipAddress: string; type: string; region: string | null;
+  id: string; name: string; ipAddress: string; atmId: string | null; type: string; region: string | null;
   branch: string | null; parentId: string | null; intervalSec: number; latencyWarnMs: number;
   enabled: boolean; mapId: string; posX: number; posY: number; icon: string; size: number;
   labelMode: string; status: string; lastLatency: number | null;
@@ -96,7 +96,7 @@ function dbNodeToRF(n: DbNode): Node {
   return {
     id: n.id, type: "device", position: { x: n.posX, y: n.posY },
     data: {
-      name: n.name, ipAddress: n.ipAddress, icon: n.icon, size: n.size,
+      name: n.name, ipAddress: n.ipAddress, atmId: n.atmId, icon: n.icon, size: n.size,
       labelMode: n.labelMode, status: n.status, latency: n.lastLatency, parentId: n.parentId,
     },
   };
@@ -156,6 +156,7 @@ function Flow({
   typeById.current = new Map(nodes.map((n) => [n.id, n.type]));
 
   // Non-ADMIN mulai (dan terkunci) di mode View.
+  const rootRef = useRef<HTMLDivElement>(null); // target fullscreen mode View
   const [editMode, setEditMode] = useState(canEdit);
   const [snap, setSnap] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -359,7 +360,7 @@ function Flow({
   const onUpdateNode = useCallback(
     (id: string, patch: Record<string, unknown>) => {
       // parentId tidak mengubah visual node, jadi jangan tulis ke data tampilan.
-      const dataKeys = ["name", "icon", "size", "labelMode", "parentId"];
+      const dataKeys = ["name", "atmId", "icon", "size", "labelMode", "parentId"];
       setNodes((ns) =>
         ns.map((n) => {
           if (n.id !== id) return n;
@@ -395,12 +396,28 @@ function Flow({
   );
 
   // keluar dari mode Edit → tutup panel & buang seleksi.
+  // Mode View = tampilan monitoring layar penuh (Fullscreen API browser, jadi
+  // tab & address bar ikut hilang). Balik ke Edit → keluar fullscreen.
   const toggleMode = useCallback(() => {
     if (!canEdit) return; // non-ADMIN tidak boleh masuk mode Edit
     setEditMode((m) => {
-      if (m) { setSelNodeId(null); setSelEdgeId(null); }
+      if (m) {
+        setSelNodeId(null); setSelEdgeId(null);
+        rootRef.current?.requestFullscreen?.().catch(() => {}); // ditolak browser → tetap mode View biasa
+      } else if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
       return !m;
     });
+  }, [canEdit]);
+
+  // Esc keluar fullscreen tanpa lewat tombol → kembalikan ke mode Edit.
+  useEffect(() => {
+    const onFsChange = () => {
+      if (!document.fullscreenElement && canEdit) setEditMode(true);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    return () => document.removeEventListener("fullscreenchange", onFsChange);
   }, [canEdit]);
 
   // ── drop icon dari palette (hanya di mode Edit) ──
@@ -457,7 +474,7 @@ function Flow({
   return (
     // Palette dipindah ke sini (dulu di page.tsx) supaya ikut hilang di mode View:
     // editMode itu state client, page.tsx (server component) tak bisa melihatnya.
-    <div className="flex h-full w-full">
+    <div ref={rootRef} className="flex h-full w-full bg-white">
       {editMode && <NodePalette />}
       <div className="relative flex-1" onDragOver={onDragOver} onDrop={onDrop}>
         <CanvasToolbar

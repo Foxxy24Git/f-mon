@@ -38,6 +38,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   if (b.type !== undefined) data.type = b.type;
   if (b.region !== undefined) data.region = b.region?.trim() || null;
   if (b.branch !== undefined) data.branch = b.branch?.trim() || null;
+  if (b.atmId !== undefined) data.atmId = b.atmId?.trim() || null;
   if (b.intervalSec !== undefined) data.intervalSec = b.intervalSec;
   if (b.latencyWarnMs !== undefined) data.latencyWarnMs = b.latencyWarnMs;
   if (b.enabled !== undefined) data.enabled = b.enabled;

@@ -36,6 +36,7 @@ model Node {
   type      NodeType @default(ATM)
   region    String? // regency / kabupaten-kota
   branch    String?
+  atmId     String? // ID mesin ATM (kosong untuk node non-ATM)
 
   // relasi parent-child untuk logika root-cause (bukan garis di canvas!)
   parentId String?
@@ -48,7 +49,7 @@ model Node {
   posY      Float  @default(0)
   icon      String @default("atm")
   size      Int    @default(48)
-  labelMode String @default("NAME_IP") // NAME | NAME_IP | NAME_IP_LATENCY
+  labelMode String @default("NAME_IP") // NAME | NAME_IP | NAME_ID | NAME_IP_LATENCY
 
   // parameter monitoring
   enabled       Boolean @default(true)

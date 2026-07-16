@@ -19,7 +19,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
     db.node.findMany({
       where: { mapId: map.id },
       select: {
-        id: true, name: true, ipAddress: true, posX: true, posY: true,
+        id: true, name: true, ipAddress: true, atmId: true, posX: true, posY: true,
         icon: true, size: true, labelMode: true, status: true, lastLatency: true,
         parentId: true,
       },
@@ -35,6 +35,7 @@ export default async function MapPage({ params }: { params: Promise<{ slug: stri
     data: {
       name: n.name,
       ipAddress: n.ipAddress,
+      atmId: n.atmId,
       icon: n.icon,
       size: n.size,
       labelMode: n.labelMode,

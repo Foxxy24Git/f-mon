@@ -3,7 +3,7 @@
 // Custom node React Flow untuk satu perangkat (CLAUDE.md §6).
 // - Icon dari registry (Node.icon).
 // - Border + glow sesuai status; DOWN berkedip (animate-pulse).
-// - Label 3 mode: NAME | NAME_IP | NAME_IP_LATENCY.
+// - Label 4 mode: NAME | NAME_IP | NAME_ID | NAME_IP_LATENCY.
 // - 4 handle (top/right/bottom/left), tiap sisi source+target agar garis bebas
 //   ditarik dari/ke sisi mana pun. Id handle = "top|right|bottom|left" (sesuai
 //   Edge.sourceHandle/targetHandle di schema).
@@ -19,9 +19,10 @@ import { useCanvasStore } from "@/store/canvasStore";
 export type DeviceNodeData = {
   name: string;
   ipAddress: string;
+  atmId?: string | null;
   icon: string;
   size: number;
-  labelMode: string; // NAME | NAME_IP | NAME_IP_LATENCY
+  labelMode: string; // NAME | NAME_IP | NAME_ID | NAME_IP_LATENCY
   status: Status;
   latency?: number | null;
   parentId?: string | null; // relasi root-cause; hanya dipakai PropertyPanel, bukan visual
@@ -64,6 +65,8 @@ const BURST_POINTS = (() => {
 
 function labelText(d: DeviceNodeData, status: Status): string {
   if (d.labelMode === "NAME") return d.name;
+  // NAME_ID: hanya berguna untuk node ATM; kalau atmId kosong, tampil nama saja.
+  if (d.labelMode === "NAME_ID") return d.atmId ? `${d.name}\n${d.atmId}` : d.name;
   if (d.labelMode === "NAME_IP_LATENCY") {
     const ms = status === "UP" || status === "WARNING" ? d.latency : null;
     return `${d.name}\n${d.ipAddress}${ms != null ? ` · ${Math.round(ms)}ms` : ""}`;
@@ -131,6 +134,7 @@ export default memo(DeviceNode, (a, b) => {
     a.selected === b.selected &&
     x.name === y.name &&
     x.ipAddress === y.ipAddress &&
+    x.atmId === y.atmId &&
     x.icon === y.icon &&
     x.size === y.size &&
     x.labelMode === y.labelMode &&

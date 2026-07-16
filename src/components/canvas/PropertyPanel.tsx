@@ -16,6 +16,7 @@ import type { LinkEdgeData } from "./LinkEdge";
 const LABEL_MODES = [
   { v: "NAME", t: "Nama saja" },
   { v: "NAME_IP", t: "Nama + IP" },
+  { v: "NAME_ID", t: "Nama + ID" },
   { v: "NAME_IP_LATENCY", t: "Nama + IP + Latency" },
 ];
 const LINE_TYPES = [
@@ -49,6 +50,8 @@ function NodeForm({ node, allNodes, onUpdate }: {
   // nama pakai state lokal supaya bisa mengetik dulu, commit saat blur.
   const [name, setName] = useState(d.name);
   useEffect(() => setName(d.name), [node.id, d.name]);
+  const [atmId, setAtmId] = useState(d.atmId ?? "");
+  useEffect(() => setAtmId(d.atmId ?? ""), [node.id, d.atmId]);
 
   return (
     <div className="space-y-3">
@@ -59,6 +62,17 @@ function NodeForm({ node, allNodes, onUpdate }: {
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name.trim() && name !== d.name && onUpdate(node.id, { name })}
+        />
+      </div>
+
+      <div>
+        <label className={label}>ID ATM</label>
+        <input
+          className={input}
+          value={atmId}
+          placeholder="kosongkan kalau bukan ATM"
+          onChange={(e) => setAtmId(e.target.value)}
+          onBlur={() => atmId !== (d.atmId ?? "") && onUpdate(node.id, { atmId })}
         />
       </div>
 
