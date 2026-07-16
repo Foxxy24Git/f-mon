@@ -1,0 +1,8 @@
+name,ip,type,region,branch,atm_id,parent_ip,icon,map_slug,pos_x,pos_y
+ISP Telkom,10.0.0.1,ISP,,,,,isp,default,400,40
+Core Router Padang,10.0.1.1,ROUTER,Padang,,,10.0.0.1,router,default,400,180
+Switch Cabang Utama,10.0.1.2,SWITCH,Padang,Cabang Utama,,10.0.1.1,switch,default,240,320
+ATM Cabang Utama 1,10.0.1.11,ATM,Padang,Cabang Utama,ATM-PDG-001,10.0.1.2,atm,default,160,460
+ATM Cabang Utama 2,10.0.1.12,ATM,Padang,Cabang Utama,ATM-PDG-002,10.0.1.2,atm,default,320,460
+Gateway Bukittinggi,10.0.2.1,GATEWAY,Bukittinggi,Cabang Bukittinggi,,10.0.1.1,gateway,bukittinggi,600,320
+"ATM RSUD, Lantai 1",10.0.2.11,ATM,Bukittinggi,Cabang Bukittinggi,ATM-BKT-001,10.0.2.1,atm,bukittinggi,600,460

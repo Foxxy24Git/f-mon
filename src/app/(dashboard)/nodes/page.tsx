@@ -47,6 +47,14 @@ export default function NodesPage() {
     updated: number;
     failed: { line: number; ip: string; reason: string }[];
   }>(null);
+  const [backupResult, setBackupResult] = useState<null | {
+    maps: number;
+    nodesCreated: number;
+    nodesUpdated: number;
+    edges: number;
+    annotations: number;
+    failed: { ip: string; reason: string }[];
+  }>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,11 +115,50 @@ export default function NodesPage() {
     load();
   }
 
+  // Restore JSON menimpa garis & penanda pada map yang ada di file — wajib konfirmasi.
+  async function importBackup(file: File) {
+    if (
+      !confirm(
+        "Restore backup JSON?\n\n" +
+          "Node dicocokkan by IP (yang sudah ada di-update).\n" +
+          "Garis & penanda pada map yang ada di file akan DIGANTI total oleh isi file.",
+      )
+    )
+      return;
+    const res = await fetch("/api/maps/backup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: await file.text(),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      alert(`Restore gagal: ${data.error ?? res.status}`);
+      return;
+    }
+    setBackupResult(data);
+    load();
+  }
+
   return (
     <main className="mx-auto max-w-6xl p-6">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold">Manajemen Node</h1>
         <div className="flex items-center gap-2">
+          <a
+            href="/api/nodes/export"
+            download
+            className="rounded bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-800"
+          >
+            Export CSV
+          </a>
+          <a
+            href="/api/maps/backup"
+            download
+            title="Backup semua map: node + posisi + garis + penanda"
+            className="rounded bg-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700"
+          >
+            Export JSON
+          </a>
           {isAdmin && (
             <>
               <label className="cursor-pointer rounded bg-gray-700 px-3 py-2 text-sm text-white hover:bg-gray-800">
@@ -123,6 +170,22 @@ export default function NodesPage() {
                   onChange={(e) => {
                     const f = e.target.files?.[0];
                     if (f) importCsv(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <label
+                title="Restore backup: node + posisi + garis + penanda"
+                className="cursor-pointer rounded bg-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700"
+              >
+                Import JSON
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) importBackup(f);
                     e.target.value = "";
                   }}
                 />
@@ -177,6 +240,30 @@ export default function NodesPage() {
           onChange={(e) => setRegion(e.target.value)}
         />
       </div>
+
+      {backupResult && (
+        <div className="mb-4 rounded border bg-gray-50 p-3 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="font-medium">
+              Restore selesai: {backupResult.maps} map, {backupResult.nodesCreated} node baru,{" "}
+              {backupResult.nodesUpdated} diupdate, {backupResult.edges} garis,{" "}
+              {backupResult.annotations} penanda, {backupResult.failed.length} gagal.
+            </span>
+            <button className="text-gray-500 hover:underline" onClick={() => setBackupResult(null)}>
+              tutup
+            </button>
+          </div>
+          {backupResult.failed.length > 0 && (
+            <ul className="mt-2 list-disc pl-5 text-red-700">
+              {backupResult.failed.map((f, i) => (
+                <li key={i}>
+                  {f.ip || "-"}: {f.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {importResult && (
         <div className="mb-4 rounded border bg-gray-50 p-3 text-sm">
@@ -294,7 +381,9 @@ export default function NodesPage() {
           initial={form}
           nodes={nodes}
           maps={maps}
-          onMapCreated={(m) => setMaps((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name)))}
+          onMapCreated={(m) =>
+            setMaps((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name)))
+          }
           onCancel={() => setForm(null)}
           onSave={saveNode}
         />

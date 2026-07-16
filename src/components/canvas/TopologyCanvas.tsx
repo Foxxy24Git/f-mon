@@ -386,6 +386,20 @@ function Flow({
     deleteElements({ nodes: selNode ? [selNode] : [], edges: selEdge ? [selEdge] : [] });
   }, [deleteElements, selNode, selEdge]);
 
+  // duplikat kotak/teks terpilih: payload sama persis (warna, ukuran, font),
+  // cuma digeser 40px biar kelihatan menumpuk tapi tetap bisa ditarik.
+  const onDuplicateSelected = useCallback(async () => {
+    if (!selNode || !isAnn(selNode.type)) return;
+    const p = annPayload(selNode);
+    const created = await createAnnInDB(mapId, { ...p, posX: p.posX + 40, posY: p.posY + 40 });
+    setNodes((ns) => [...ns, created]);
+    let rec = created;
+    pushHistory({
+      undo: async () => { setNodes((ns) => ns.filter((n) => n.id !== rec.id)); await fetch(`/api/annotations/${rec.id}`, { method: "DELETE" }); },
+      redo: async () => { rec = await createAnnInDB(mapId, annPayload(rec)); setNodes((ns) => [...ns, rec]); },
+    });
+  }, [selNode, mapId, setNodes, pushHistory]);
+
   // annotation: patch data (text/color/fontSize) → state + /api/annotations.
   const onUpdateAnnotation = useCallback(
     (id: string, patch: Record<string, unknown>) => {
@@ -501,6 +515,7 @@ function Flow({
             onUpdateEdge={onUpdateEdge}
             onUpdateAnnotation={onUpdateAnnotation}
             onDelete={onDeleteSelected}
+            onDuplicate={onDuplicateSelected}
           />
         )}
         <ReactFlow

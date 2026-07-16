@@ -7,7 +7,7 @@
 // Panel hanya mengirim perubahan lewat callback; TopologyCanvas yang menyimpan
 // ke DB dan mem-patch state canvas.
 import { useEffect, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import type { Node, Edge } from "@xyflow/react";
 import { ICONS } from "@/lib/icons";
 import type { DeviceNodeData } from "./DeviceNode";
@@ -35,6 +35,7 @@ type Props = {
   onUpdateEdge: (id: string, patch: Record<string, unknown>) => void;
   onUpdateAnnotation: (id: string, patch: Record<string, unknown>) => void;
   onDelete: () => void; // hapus elemen terpilih (node/garis/kotak/teks)
+  onDuplicate: () => void; // salin kotak/teks terpilih (warna & ukuran ikut)
 };
 
 const label = "block text-xs font-medium text-slate-500";
@@ -250,7 +251,7 @@ function AnnotationForm({ node, onUpdate }: { node: Node; onUpdate: Props["onUpd
   );
 }
 
-export default function PropertyPanel({ node, edge, allNodes, onUpdateNode, onUpdateEdge, onUpdateAnnotation, onDelete }: Props) {
+export default function PropertyPanel({ node, edge, allNodes, onUpdateNode, onUpdateEdge, onUpdateAnnotation, onDelete, onDuplicate }: Props) {
   if (!node && !edge) return null;
   const isAnn = node?.type === "box" || node?.type === "text";
   const title = isAnn ? (node!.type === "box" ? "Properti Kotak" : "Properti Teks") : node ? "Properti Node" : "Properti Garis";
@@ -264,6 +265,16 @@ export default function PropertyPanel({ node, edge, allNodes, onUpdateNode, onUp
         <NodeForm node={node} allNodes={allNodes} onUpdate={onUpdateNode} />
       ) : (
         <EdgeForm edge={edge!} onUpdate={onUpdateEdge} />
+      )}
+
+      {isAnn && (
+        <button
+          type="button"
+          onClick={onDuplicate}
+          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded border border-slate-300 bg-slate-50 px-2 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100"
+        >
+          <Copy size={15} strokeWidth={1.75} /> Duplikat
+        </button>
       )}
 
       <button
