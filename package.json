@@ -17,7 +17,8 @@
     "seed:ping-sim": "node --env-file=.env --import tsx prisma/seed-ping-sim.ts",
     "worker": "node --env-file=.env --import tsx src/worker/pinger.ts",
     "worker:once": "node --env-file=.env --import tsx src/worker/pinger.ts --once",
-    "seed:solok-status": "node --env-file=.env --import tsx prisma/seed-solok-status.ts"
+    "seed:solok-status": "node --env-file=.env --import tsx prisma/seed-solok-status.ts",
+    "import:csv": "node --env-file=.env --import tsx prisma/import-wup.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

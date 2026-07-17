@@ -10,7 +10,9 @@ services:
       POSTGRES_DB: fmon
     ports:
       # host:container — biar Prisma di mesin lokal bisa connect ke localhost:5432
-      - "5432:5432"
+      # DB_PORT bisa dioverride lewat .env kalau port 5432 di host sudah dipakai
+      # (mis. VM yang juga menjalankan aplikasi lain).
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - fmon-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -32,7 +34,8 @@ services:
       # (bukan cuma env var) — mount read-only, tidak ikut ke image build
       - ./.env:/app/.env:ro
     ports:
-      - "3000:3000"
+      # APP_PORT bisa dioverride lewat .env kalau port 3000 di host sudah dipakai.
+      - "${APP_PORT:-3000}:3000"
     depends_on:
       db:
         condition: service_healthy
