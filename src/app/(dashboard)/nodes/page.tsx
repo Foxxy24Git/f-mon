@@ -196,7 +196,7 @@ export default function NodesPage() {
                   setForm({
                     type: "ATM",
                     intervalSec: 30,
-                    latencyWarnMs: 200,
+                    latencyWarnMs: 900,
                     enabled: true,
                     mapId: maps.find((m) => m.slug === "default")?.id ?? maps[0]?.id,
                   })
@@ -526,7 +526,7 @@ function NodeForm({
             <input
               type="number"
               className="input"
-              value={f.latencyWarnMs ?? 200}
+              value={f.latencyWarnMs ?? 900}
               onChange={(e) => set("latencyWarnMs", Number(e.target.value))}
             />
           </Field>

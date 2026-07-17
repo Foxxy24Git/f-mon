@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
         atmId: b.atmId?.trim() || null,
         parentId: b.parentId || null,
         intervalSec: b.intervalSec ?? 30,
-        latencyWarnMs: b.latencyWarnMs ?? 200,
+        latencyWarnMs: b.latencyWarnMs ?? 900,
         enabled: b.enabled ?? true,
         mapId: b.mapId || (await getDefaultMapId()),
         // posisi & icon dari drag-drop canvas (opsional; default di schema)

@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
       labelMode: str(raw.labelMode) || "NAME_IP",
       enabled: bool(raw.enabled, true),
       intervalSec: num(raw.intervalSec, 30),
-      latencyWarnMs: num(raw.latencyWarnMs, 200),
+      latencyWarnMs: num(raw.latencyWarnMs, 900),
       maintenance: bool(raw.maintenance, false),
     };
 
